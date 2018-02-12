@@ -14859,10 +14859,11 @@ enum hdd_external_acs_policy {
  *
  * </ini>
  */
-#define CFG_ENABLE_PACKET_FILTERS_NAME     "g_enable_packet_filter_bitmap"
-#define CFG_ENABLE_PACKET_FILTERS_DEFAULT  (0)
-#define CFG_ENABLE_PACKET_FILTERS_MIN      (0)
-#define CFG_ENABLE_PACKET_FILTERS_MAX      (63)
+#define CFG_ENABLE_PACKET_FILTERS_NAME      "g_enable_packet_filter_bitmap"
+#define CFG_ENABLE_PACKET_FILTERS_NAME_NOOP "g_enable_packet_filter_bitmap_noop"
+#define CFG_ENABLE_PACKET_FILTERS_DEFAULT   (0)
+#define CFG_ENABLE_PACKET_FILTERS_MIN       (0)
+#define CFG_ENABLE_PACKET_FILTERS_MAX       (63)
 
 
 /*
@@ -18818,6 +18819,7 @@ struct hdd_config {
 	int8_t mbo_current_rssi_mcc_thres;
 	int8_t mbo_candidate_rssi_btc_thres;
 	uint8_t packet_filters_bitmap;
+	uint8_t packet_filters_bitmap_noop;
 	uint8_t enable_phy_reg_retention;
 	uint8_t dfs_beacon_tx_enhanced;
 	uint16_t reduced_beacon_interval;
