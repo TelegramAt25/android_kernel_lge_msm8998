@@ -611,6 +611,12 @@ struct mdss_dsi_ctrl_pdata {
 
 	bool phy_power_off;
 
+	struct notifier_block wake_notif;
+	struct task_struct *wake_thread;
+	struct completion wake_comp;
+	wait_queue_head_t wake_waitq;
+	atomic_t disp_en;
+
 #if defined(CONFIG_LGE_MIPI_JOAN_ONCELL_QHD_CMD_PANEL)
 	bool need_post_panel_on;
 #endif
@@ -621,6 +627,12 @@ struct mdss_dsi_ctrl_pdata {
 	struct dsi_panel_cmds bist_on_cmds;
 	struct dsi_panel_cmds bist_off_cmds;
 #endif
+};
+
+enum {
+	MDSS_DISPLAY_OFF,
+	MDSS_DISPLAY_WAKING,
+	MDSS_DISPLAY_ON
 };
 
 struct dsi_status_data {
