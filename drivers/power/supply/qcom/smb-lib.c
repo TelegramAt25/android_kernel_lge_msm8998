@@ -31,6 +31,7 @@
 	pr_err("%s: %s: " fmt, chg->name,	\
 		__func__, ##__VA_ARGS__)	\
 
+#ifdef CONFIG_DEBUG_SMB_LIB
 #define smblib_dbg(chg, reason, fmt, ...)			\
 	do {							\
 		if (*chg->debug_mask & (reason))		\
@@ -40,6 +41,9 @@
 			pr_debug("%s: %s: " fmt, chg->name,	\
 				__func__, ##__VA_ARGS__);	\
 	} while (0)
+#else
+#define smblib_dbg(chg, reason, fmt, ...) do {} while (0)
+#endif
 
 #else
 #define smblib_err(chg, fmt, ...) do {} while (0)
@@ -3750,6 +3754,7 @@ int smblib_get_prop_slave_current_now(struct smb_charger *chg,
 #ifdef DEBUG
 irqreturn_t smblib_handle_debug(int irq, void *data)
 {
+#ifdef CONFIG_DEBUG_SMB_LIB
 	struct smb_irq_data *irq_data = data;
 	struct smb_charger *chg = irq_data->parent_data;
 
@@ -3758,6 +3763,7 @@ irqreturn_t smblib_handle_debug(int irq, void *data)
 if (strcmp(irq_data->name, "input-current-limiting") || *chg->debug_mask == 0xFF)
 #endif
 	smblib_dbg(chg, PR_INTERRUPT, "IRQ: %s\n", irq_data->name);
+#endif
 	return IRQ_HANDLED;
 }
 #else
