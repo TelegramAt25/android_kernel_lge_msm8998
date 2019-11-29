@@ -2088,6 +2088,7 @@ static char *get_trace_buf(void)
 	return this_cpu_ptr(&percpu_buffer->buffer[0]);
 }
 
+#ifdef CONFIG_TRACE_PRINTK
 static int alloc_percpu_trace_buffer(void)
 {
 	struct trace_buffer_struct *buffers;
@@ -2128,11 +2129,13 @@ static int alloc_percpu_trace_buffer(void)
 	WARN(1, "Could not allocate percpu trace_printk buffer");
 	return -ENOMEM;
 }
+#endif /* CONFIG_TRACE_PRINTK */
 
 static int buffers_allocated;
 
 void trace_printk_init_buffers(void)
 {
+#ifdef CONFIG_TRACE_PRINTK
 	if (buffers_allocated)
 		return;
 
@@ -2169,6 +2172,9 @@ void trace_printk_init_buffers(void)
 	 */
 	if (global_trace.trace_buffer.buffer)
 		tracing_start_cmdline_record();
+#else
+	return;
+#endif /* CONFIG_TRACE_PRINTK */
 }
 
 void trace_printk_start_comm(void)
