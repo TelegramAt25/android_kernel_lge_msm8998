@@ -153,7 +153,7 @@ asmlinkage notrace void secondary_start_kernel(void)
 	cpu = task_cpu(current);
 	set_my_cpu_offset(per_cpu_offset(cpu));
 
-	pr_debug("CPU%u: Booted secondary processor\n", cpu);
+//	pr_debug("CPU%u: Booted secondary processor\n", cpu);
 
 	/*
 	 * All kernel threads share the same mm context; grab a
@@ -198,8 +198,10 @@ asmlinkage notrace void secondary_start_kernel(void)
 	 * the CPU migration code to notice that the CPU is online
 	 * before we continue.
 	 */
+	/*
 	pr_debug("CPU%u: Booted secondary processor [%08x]\n",
 					 cpu, read_cpuid_id());
+	*/
 	set_cpu_online(cpu, true);
 	complete(&cpu_running);
 
