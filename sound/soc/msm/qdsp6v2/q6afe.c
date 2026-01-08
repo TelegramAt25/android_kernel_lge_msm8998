@@ -673,7 +673,7 @@ static int32_t afe_callback(struct apr_client_data *data, void *priv)
 					return 0;
 #if defined(CONFIG_SND_SOC_TFA9872)
 				if(atomic_read(&this_afe.tfa_state) == 1){
-					pr_info("%s:AFE_PORT_CMD_SET_PARAM_V3 , data->token = %d, payload = %d, %d\n",
+					pr_debug("%s:AFE_PORT_CMD_SET_PARAM_V3 , data->token = %d, payload = %d, %d\n",
 					__func__, data->token, payload[0], payload[1]);
 					atomic_set(&this_afe.tfa_state, 0);
 				}
