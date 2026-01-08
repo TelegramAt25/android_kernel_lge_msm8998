@@ -177,13 +177,6 @@ static void _poll_monitor(struct lge_monitor_thermal_data *monitor_dd)
 		} else {
 			thermal_zone_get_temp(monitor_dd->tz_vts, &monitor_dd->last_vts_temp);
 		}
-
-		pr_err("[TM] XO,%3d,PA0,%3d,PA1,%3d,QUIET,%3d,VTS,%u\n",
-					monitor_dd->last_xo_temp,
-					monitor_dd->last_pa0_temp,
-					monitor_dd->last_pa1_temp,
-					monitor_dd->last_quiet_temp,
-					monitor_dd->last_vts_temp);
 	}
 }
 
