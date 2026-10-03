@@ -158,12 +158,14 @@ void mdss_dsi_set_reg(struct mdss_dsi_ctrl_pdata *ctrl, int off,
 	MIPI_OUTP(ctrl->ctrl_base + off, data);
 }
 
-void mdss_dsi_clk_req(struct mdss_dsi_ctrl_pdata *ctrl,
+int mdss_dsi_clk_req(struct mdss_dsi_ctrl_pdata *ctrl,
 	struct dsi_panel_clk_ctrl *clk_ctrl)
 {
 	enum dsi_clk_req_client client = clk_ctrl->client;
 	int enable = clk_ctrl->state;
 	void *clk_handle = ctrl->mdp_clk_handle;
+	unsigned long flags;
+	bool busy;
 
 	if (clk_ctrl->client == DSI_CLK_REQ_DSI_CLIENT)
 		clk_handle = ctrl->dsi_clk_handle;
@@ -176,9 +178,22 @@ void mdss_dsi_clk_req(struct mdss_dsi_ctrl_pdata *ctrl,
 	 * race condition, clocks are turned off and so the
 	 * isr for cmd_mdp_busy does not get cleared in hw.
 	 */
-	if (enable == MDSS_DSI_CLK_OFF ||
-		enable == MDSS_DSI_CLK_EARLY_GATE) {
-		/* need wait before disable */
+	if (enable == MDSS_DSI_CLK_EARLY_GATE) {
+		/*
+		 * Early gating is optional. Kickoff synchronously cancels its
+		 * worker, so do not make it wait behind a panel command or DMA.
+		 * A skipped gate leaves the MDP vote ON for delayed shutdown.
+		 */
+		if (!mutex_trylock(&ctrl->cmd_mutex))
+			return -EAGAIN;
+		spin_lock_irqsave(&ctrl->mdp_lock, flags);
+		busy = ctrl->mdp_busy;
+		spin_unlock_irqrestore(&ctrl->mdp_lock, flags);
+		mutex_unlock(&ctrl->cmd_mutex);
+		if (busy)
+			return -EAGAIN;
+	} else if (enable == MDSS_DSI_CLK_OFF) {
+		/* Full shutdown must still wait for outstanding commands. */
 		mutex_lock(&ctrl->cmd_mutex);
 		mdss_dsi_cmd_mdp_busy(ctrl);
 		mutex_unlock(&ctrl->cmd_mutex);
@@ -188,6 +203,7 @@ void mdss_dsi_clk_req(struct mdss_dsi_ctrl_pdata *ctrl,
 		client);
 	mdss_dsi_clk_ctrl(ctrl, clk_handle,
 		  MDSS_DSI_ALL_CLKS, enable);
+	return 0;
 }
 
 void mdss_dsi_pll_relock(struct mdss_dsi_ctrl_pdata *ctrl)

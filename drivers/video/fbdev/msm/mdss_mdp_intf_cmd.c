@@ -1819,6 +1819,8 @@ static void clk_ctrl_gate_work(struct work_struct *work)
 	struct mdss_mdp_ctl *ctl, *sctl;
 	struct mdss_mdp_cmd_ctx *sctx = NULL;
 	struct dsi_panel_clk_ctrl clk_ctrl;
+	u32 slave_flags = CTL_INTF_EVENT_FLAG_SKIP_BROADCAST;
+	int rc;
 
 	if (!ctx) {
 		pr_err("%s: invalid ctx\n", __func__);
@@ -1889,20 +1891,30 @@ static void clk_ctrl_gate_work(struct work_struct *work)
 	clk_ctrl.client = DSI_CLK_REQ_MDP_CLIENT;
 	/* First gate the DSI clocks for the slave controller (if present) */
 	if (sctx) {
-		u32 flags = CTL_INTF_EVENT_FLAG_SKIP_BROADCAST;
-
 		if (sctx->pingpong_split_slave)
-			flags |= CTL_INTF_EVENT_FLAG_SLAVE_INTF;
+			slave_flags |= CTL_INTF_EVENT_FLAG_SLAVE_INTF;
 
-		mdss_mdp_ctl_intf_event(sctx->ctl,
+		rc = mdss_mdp_ctl_intf_event(sctx->ctl,
 			MDSS_EVENT_PANEL_CLK_CTRL,
-			(void *)&clk_ctrl, flags);
+			(void *)&clk_ctrl, slave_flags);
+		if (rc)
+			goto exit;
 	}
 
 	/* Now gate DSI clocks for the master */
-	mdss_mdp_ctl_intf_event
+	rc = mdss_mdp_ctl_intf_event
 		(ctx->ctl, MDSS_EVENT_PANEL_CLK_CTRL,
 		(void *)&clk_ctrl, CTL_INTF_EVENT_FLAG_SKIP_BROADCAST);
+	if (rc) {
+		/* Restore the slave vote if the master could not gate. */
+		if (sctx) {
+			clk_ctrl.state = MDSS_DSI_CLK_ON;
+			mdss_mdp_ctl_intf_event(sctx->ctl,
+				MDSS_EVENT_PANEL_CLK_CTRL,
+				(void *)&clk_ctrl, slave_flags);
+		}
+		goto exit;
+	}
 
 	/* Gate mdp clocks */
 	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
