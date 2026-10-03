@@ -443,8 +443,11 @@ int lge_mdss_dsi_panel_reg_backup(struct mdss_dsi_ctrl_pdata *ctrl) {
 		ret_sub = lge_color_manager_reg_backup(ctrl_pdata);
 		if (ret_sub < 0)
 			pr_err("fail to backup CM REG : %d\n", ret_sub);
-		else
+		else {
 			lge_ctrl_pdata->is_backup = true;
+			if (lge_ctrl_pdata->screen_mode != 0)
+				lge_set_screen_mode(ctrl_pdata, true);
+		}
 		ret += ret_sub;
 	}
 #endif

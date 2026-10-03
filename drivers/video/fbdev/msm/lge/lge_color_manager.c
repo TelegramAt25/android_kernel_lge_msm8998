@@ -277,6 +277,14 @@ void lge_set_screen_mode(struct mdss_dsi_ctrl_pdata *ctrl, bool send_cmd)
 		return;
 	}
 
+	/* Preserve the panel's original gamma until the first register backup. */
+	if (send_cmd && !lge_ctrl_pdata->is_backup &&
+			lge_ctrl_pdata->screen_mode != 0) {
+		pr_info("Defer screen mode %d until gamma register backup\n",
+				lge_ctrl_pdata->screen_mode);
+		return;
+	}
+
 	if (lge_ctrl_pdata->screen_mode == 0) {
 		lge_ctrl_pdata->color_manager_mode = lge_ctrl_pdata->color_manager_table[lge_ctrl_pdata->screen_mode].color_manager_mode;
 		lge_ctrl_pdata->color_manager_status = lge_ctrl_pdata->color_manager_table[lge_ctrl_pdata->screen_mode].color_manager_status;
