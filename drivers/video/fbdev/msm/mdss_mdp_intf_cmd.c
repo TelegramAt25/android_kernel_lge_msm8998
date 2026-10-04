@@ -3308,6 +3308,15 @@ int mdss_mdp_cmd_ctx_stop(struct mdss_mdp_ctl *ctl,
 	/* intf stopped,  no more kickoff */
 	ctx->intf_stopped = 1;
 
+	/*
+	 * Unregister under the DSI mutex to drain an in-flight callback before
+	 * disabling its rdptr IRQ or clearing ctx. Resolution switches also
+	 * tear down ctx; panel_on registers the callback again after restart.
+	 */
+	mdss_mdp_ctl_intf_event(ctl,
+		MDSS_EVENT_REGISTER_MDP_CALLBACK,
+		NULL, CTL_INTF_EVENT_FLAG_DEFAULT);
+
 	/* Make sure any rd ptr for dsi callback is done before disable vsync */
 	if (is_pingpong_split(ctl->mfd)) {
 		pr_debug("%s will wait for rd ptr:%d\n", __func__,
@@ -3337,10 +3346,6 @@ int mdss_mdp_cmd_ctx_stop(struct mdss_mdp_ctl *ctl,
 	if (!ctl->pending_mode_switch) {
 		mdss_mdp_ctl_intf_event(ctl,
 			MDSS_EVENT_REGISTER_RECOVERY_HANDLER,
-			NULL, CTL_INTF_EVENT_FLAG_DEFAULT);
-
-		mdss_mdp_ctl_intf_event(ctl,
-			MDSS_EVENT_REGISTER_MDP_CALLBACK,
 			NULL, CTL_INTF_EVENT_FLAG_DEFAULT);
 	}
 
