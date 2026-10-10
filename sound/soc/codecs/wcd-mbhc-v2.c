@@ -3338,6 +3338,16 @@ void wcd_set_clamp_on_mic(int value)
         }
     }
 }
+
+//Impedance measured at plug-in, for the ES9218P status file
+int wcd_mbhc_get_ess_impedance(uint32_t *zl, uint32_t *zr)
+{
+    if (ESSMbhc == NULL) {
+        *zl = *zr = 0;
+        return -ENODEV;
+    }
+    return wcd_mbhc_get_impedance(ESSMbhc, zl, zr);
+}
 #endif /* CONFIG_SND_SOC_ES9218P */
 /*
  * wcd_mbhc_init : initialize MBHC internal structures.

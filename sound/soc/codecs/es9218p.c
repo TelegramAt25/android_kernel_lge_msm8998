@@ -358,6 +358,7 @@ static int prev_dop_flag = 0;
 static int call_common_init_registers = 0;
 
 bool g_ess_rev_check = false;
+static u8 g_chip_id; //upper nibble of the chip status register, 0 until read
 
 enum {
     ESS_A = 1,
@@ -1253,6 +1254,32 @@ static ssize_t get_forced_ess_custom_filter(struct device *dev,
 }
 static DEVICE_ATTR(ess_custom_filter, S_IWUSR|S_IRUGO, get_forced_ess_custom_filter, set_forced_ess_custom_filter);
 
+#ifdef CONFIG_MACH_MSM8998_JOAN
+extern int wcd_mbhc_get_ess_impedance(uint32_t *zl, uint32_t *zr);
+#endif
+
+/* Output summary from cached state only; never touches the chip */
+static ssize_t es9218_status_show(struct device *dev,
+                   struct device_attribute *attr, char *buf)
+{
+    uint32_t zl = 0, zr = 0;
+    const char *chip = "unknown";
+
+#ifdef CONFIG_MACH_MSM8998_JOAN
+    wcd_mbhc_get_ess_impedance(&zl, &zr);
+#endif
+    if (g_chip_id == 0xD0)
+        chip = "ES9218P";
+    else if (g_chip_id == 0xE0)
+        chip = "ES9228";
+
+    return scnprintf(buf, PAGE_SIZE,
+            "state=%s\nrate=%u\nbits=%u\ndop=%d\nheadset_type=%d\nchip=%s\nzl=%u\nzr=%u\n",
+            power_state[es9218_power_state], es9218_rate, es9218_bps, g_dop_flag,
+            g_headset_type, chip, zl, zr);
+}
+static DEVICE_ATTR(status, S_IRUGO, es9218_status_show, NULL);
+
 static struct attribute *es9218_attrs[] = {
 #ifdef CONFIG_SND_SOC_LGE_ESS_DIGITAL_FILTER
 	&dev_attr_fade_mute_count.attr,
@@ -1267,6 +1294,7 @@ static struct attribute *es9218_attrs[] = {
     &dev_attr_avc_volume.attr,
     &dev_attr_left_volume.attr,
 	&dev_attr_right_volume.attr,
+    &dev_attr_status.attr,
     NULL
 };
 
@@ -1866,6 +1894,13 @@ static int es9218p_sabre_bypass2hifi(void)
     ///////////////////////////////////////////////////////
 	// sabre is now in LowFi mode  (RESETb HIGH, GPIO2 LOW)
 	///////////////////////////////////////////////////////
+
+    if (!g_chip_id) {
+        int chip_status = es9218_read_reg(g_es9218_priv->i2c_client, ES9218P_CHIPSTATUS);
+
+        if (chip_status > 0)
+            g_chip_id = chip_status & 0xF0;
+    }
 
     if( call_common_init_registers == 1 ) {
         call_common_init_registers = 0;
@@ -2864,11 +2899,13 @@ static int es9218_chip_state_get(struct snd_kcontrol *kcontrol,
             if (chipId == 0xd0){
                 pr_info("%s: ESS revsion = ESS_9218p\n", __func__);
                 g_ess_rev_check = true;
+                g_chip_id = chipId;
                 break;
             }
             else if (chipId == 0xe0){
                 pr_info("%s: ESS revsion = ESS_9228\n", __func__);
                 g_ess_rev_check = true;
+                g_chip_id = chipId;
                 break;
             }
         }
