@@ -61,6 +61,7 @@ static int  es9218_read_reg(struct i2c_client *client, int reg);
 
 static int  es9218p_sabre_hifi2lpb(void);
 static int  es9218p_sabre_bypass2hifi(void);
+static int  es9218_sabre_audio_idle(void);
 
 static int  es9218p_sabre_lpb2hifione(void);
 static int  es9218p_sabre_lpb2hifitwo(void);
@@ -890,19 +891,40 @@ static int es9218p_sabre_amp_stop(struct i2c_client *client, int headset)
 
 #ifdef ES9218P_SYSFS
 
+/*
+ * The setters below always store the value; the chip is only programmed while it is
+ * powered in Hi-Fi. es9218p_sabre_bypass2hifi() re-applies the stored values on entry.
+ */
+static bool es9218_sysfs_is_hifi(void)
+{
+    return es9218_power_state >= ESS_PS_HIFI;
+}
+
+/* Balance volume, in 0.5 dB attenuation steps */
+static ssize_t es9218_sysfs_set_balance(const char *buf, size_t count,
+                   int *volume, int reg)
+{
+    int input_val;
+
+    if (kstrtoint(buf, 10, &input_val) || input_val < 0 || input_val > 0xFF) {
+        pr_err("%s() : invalid volume\n", __func__);
+        return -EINVAL;
+    }
+
+    mutex_lock(&g_es9218_priv->power_lock);
+    *volume = input_val;
+    if (es9218_sysfs_is_hifi())
+        es9218_write_reg(g_es9218_priv->i2c_client, reg, *volume);
+    mutex_unlock(&g_es9218_priv->power_lock);
+
+    return count;
+}
+
 /* Left balance volume */
 static ssize_t set_forced_left_volume(struct device *dev,
                    struct device_attribute *attr,
                    const char *buf, size_t count) {
-    int input_val; // value representing dB decrease for left channel
-    sscanf(buf, "%d", &input_val);
-
-	/* NOTE: This value is halved internally, so there's no need to use float */
-	g_left_volume = input_val;
-
-    es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_15, g_left_volume);
-
-    return count;
+    return es9218_sysfs_set_balance(buf, count, &g_left_volume, ES9218P_REG_15);
 }
 static ssize_t get_forced_left_volume(struct device *dev,
                    struct device_attribute *attr,
@@ -915,15 +937,7 @@ static DEVICE_ATTR(left_volume, S_IWUSR|S_IRUGO, get_forced_left_volume, set_for
 static ssize_t set_forced_right_volume(struct device *dev,
                    struct device_attribute *attr,
                    const char *buf, size_t count) {
-    int input_val; // value representing dB decrease for left channel
-    sscanf(buf, "%d", &input_val);
-
-	/* NOTE: This value is halved internally, so there's no need to use float */
-	g_right_volume = input_val;
-
-    es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_16, g_right_volume);
-
-    return count;
+    return es9218_sysfs_set_balance(buf, count, &g_right_volume, ES9218P_REG_16);
 }
 static ssize_t get_forced_right_volume(struct device *dev,
                    struct device_attribute *attr,
@@ -939,15 +953,39 @@ static ssize_t set_forced_headset_type(struct device *dev,
                    const char *buf, size_t count)
 {
     int input_val; //0, 1, 2
-    sscanf(buf, "%d", &input_val);
+    unsigned int prev_state;
 
-    es9218p_sabre_hifi2lpb();
-    g_volume = 0;
+    if (kstrtoint(buf, 10, &input_val) || input_val < 0 || input_val > 2) {
+        pr_err("%s() : invalid headset type\n", __func__);
+        return -EINVAL;
+    }
+
+    mutex_lock(&g_es9218_priv->power_lock);
+    prev_state = es9218_power_state;
+
+    // Skip the amp cycle (and its pop) when the panel re-sends the current mode
+    if (forced_headset_type == input_val + 1 && g_headset_type == input_val + 1) {
+        mutex_unlock(&g_es9218_priv->power_lock);
+        return count;
+    }
+
+    // The amp mode only changes on Hi-Fi entry, so cycle through bypass when powered
+    if (es9218_sysfs_is_hifi())
+        es9218p_sabre_hifi2lpb();
 
     g_headset_type = input_val + 1;
-    forced_headset_type = input_val + 1;    
-    
-    es9218p_sabre_bypass2hifi();
+    forced_headset_type = input_val + 1;
+
+    if (prev_state >= ESS_PS_HIFI) {
+        // hifi2lpb() held the chip in reset, so redo the init that startup() would request
+        call_common_init_registers = 1;
+        es9218p_sabre_bypass2hifi();
+        if (g_dop_flag == 0)
+            es9218p_set_volume_rate(es9218_rate, ESS_MODE_PCM);
+        if (prev_state == ESS_PS_IDLE)
+            es9218_sabre_audio_idle();
+    }
+    mutex_unlock(&g_es9218_priv->power_lock);
 
     return count;
 }
@@ -966,23 +1004,20 @@ static ssize_t set_forced_avc_volume(struct device *dev,
                    const char *buf, size_t count)
 {
     int input_vol;
-    sscanf(buf, "%d", &input_vol);
 
-    if ( es9218_power_state < ESS_PS_HIFI ) {
-        pr_err("%s() : invalid state = %s\n", __func__, power_state[es9218_power_state]);
+    if (kstrtoint(buf, 10, &input_vol) || input_vol < 0 ||
+            input_vol >= ARRAY_SIZE(avc_vol_tbl)) {
+        pr_err("%s() : invalid vol\n", __func__);
         return -EINVAL;
     }
 
-    if (input_vol >= sizeof(avc_vol_tbl)/sizeof(avc_vol_tbl[0])) {
-        pr_err("%s() : Invalid vol = %d return \n", __func__, input_vol);
-        return -EINVAL;
-    }
-
+    mutex_lock(&g_es9218_priv->power_lock);
     g_avc_volume = input_vol;
-    forced_avc_volume = input_vol;    
-    
-    es9218_set_avc_volume(g_es9218_priv->i2c_client, g_avc_volume);
-    
+    forced_avc_volume = input_vol;
+    if (es9218_sysfs_is_hifi())
+        es9218_set_avc_volume(g_es9218_priv->i2c_client, g_avc_volume);
+    mutex_unlock(&g_es9218_priv->power_lock);
+
     return count;
 }
 
@@ -999,21 +1034,14 @@ static ssize_t set_forced_ess_filter(struct device *dev,
                    const char *buf, size_t count)
 {
     int input_filter;
-    sscanf(buf, "%d", &input_filter);
 
-    if ( es9218_power_state < ESS_PS_HIFI ) {
-        pr_err("%s() : invalid state = %s\n", __func__, power_state[es9218_power_state]);
+    if (kstrtoint(buf, 10, &input_filter) || input_filter < 0 || input_filter > 11) {
+        pr_err("%s() : invalid filter\n", __func__);
         return -EINVAL;
     }
 
-    if (input_filter > 11) {
-        pr_err("%s() : Invalid filter = %d return \n", __func__, input_filter);
-        return -EINVAL;
-    }
-
+    mutex_lock(&g_es9218_priv->power_lock);
     g_sabre_cf_num = input_filter;
-    
-    es9218_sabre_cfg_custom_filter(&es9218_sabre_custom_ft[g_sabre_cf_num]);
 
     // Logic taken from `mute_work_function` above
     if(g_sabre_cf_num == SHORT_FILTER)
@@ -1023,7 +1051,11 @@ static ssize_t set_forced_ess_filter(struct device *dev,
     else
         g_volume = 2;
 
-    es9218_master_trim(g_es9218_priv->i2c_client, g_volume);
+    if (es9218_sysfs_is_hifi()) {
+        es9218_sabre_cfg_custom_filter(&es9218_sabre_custom_ft[g_sabre_cf_num]);
+        es9218_master_trim(g_es9218_priv->i2c_client, g_volume);
+    }
+    mutex_unlock(&g_es9218_priv->power_lock);
 
     return count;
 }
@@ -1107,31 +1139,39 @@ static DEVICE_ATTR(sample_rate, S_IWUSR|S_IRUGO, get_sample_rate, set_forced_sam
  * MAX_FILTER_DATA_SIZE (amount of commas needed) +
  * 1 ('\0' char)
  */
-#define MAX_FILTER_STRING_SIZE   2 + (8 * 14) + MAX_FILTER_DATA_SIZE + 1
+#define MAX_FILTER_STRING_SIZE   (2 + (8 * 14) + MAX_FILTER_DATA_SIZE + 1)
 static ssize_t set_forced_ess_custom_filter(struct device *dev,
                    struct device_attribute *attr,
                    const char *buf, size_t count) {
 	char *datatoken, *delimiter = ",";
-	char *received_data;
+	char *received_data, *cursor;
 	int filter_data[MAX_FILTER_DATA_SIZE], i = 0;
 
-	if ( es9218_power_state < ESS_PS_HIFI ) {
-		pr_err("%s() : invalid state = %s\n", __func__, power_state[es9218_power_state]);
+	if (count >= MAX_FILTER_STRING_SIZE)
 		return -EINVAL;
-	}
 
-	received_data = kzalloc(MAX_FILTER_STRING_SIZE * sizeof(char), GFP_KERNEL);
-	sscanf(buf, "%s", received_data);
+	received_data = kstrndup(buf, count, GFP_KERNEL);
+	if (!received_data)
+		return -ENOMEM;
 
 	/* Tokenize received data and save into the filter data array (everything is an integer) */
-	while ((datatoken = strsep(&received_data, delimiter)) != NULL && i < MAX_FILTER_DATA_SIZE) {
-		if (kstrtoint(datatoken, 10, &filter_data[i]) != 0) {
-			pr_err("Failed to convert filter data!");
-			kfree(received_data);
-			return -EINVAL;
+	cursor = strim(received_data);
+	while ((datatoken = strsep(&cursor, delimiter)) != NULL) {
+		if (i == MAX_FILTER_DATA_SIZE || kstrtoint(datatoken, 10, &filter_data[i]) != 0) {
+			i = -1;
+			break;
 		}
 		i++;
 	}
+	//strsep() advances cursor, so free the original allocation
+	kfree(received_data);
+
+	if (i != MAX_FILTER_DATA_SIZE) {
+		pr_err("%s() : invalid filter data\n", __func__);
+		return -EINVAL;
+	}
+
+	mutex_lock(&g_es9218_priv->power_lock);
 
 	/* Load the received data into the custom filter */
 	if(filter_data[0] >= 0 && filter_data[0] !=  5 && filter_data[0] <= 7) /* Load filter shape config */
@@ -1156,11 +1196,11 @@ static ssize_t set_forced_ess_custom_filter(struct device *dev,
 		 * that read or write to the custom filter a bit faster as well.
 		 */
 
-	/* Apply the filter (just to update the data internally in case custom filter is not selected) */
-	es9218_sabre_cfg_custom_filter(&es9218_sabre_custom_ft[g_sabre_cf_num]);
+	/* Reprogram only if the custom filter is in use; selecting it later programs it */
+	if (es9218_sysfs_is_hifi() && g_sabre_cf_num == 3)
+		es9218_sabre_cfg_custom_filter(&es9218_sabre_custom_ft[g_sabre_cf_num]);
 
-	/* We already used up the received data, so free all previously allocated space. */
-	kfree(received_data);
+	mutex_unlock(&g_es9218_priv->power_lock);
 
 	return count;
 }
