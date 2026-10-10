@@ -34,6 +34,7 @@
 extern int es9218_sabre_headphone_on(void);
 extern int es9218_sabre_headphone_off(void);
 extern int es9218_get_power_state(void);
+#define LGE_ESS_PS_BYPASS 2 //ESS_PS_BYPASS in es9218p.h
 #endif
 #include <linux/debugfs.h>
 #ifdef CONFIG_MACH_LGE
@@ -1438,6 +1439,38 @@ exit:
 	return spl_hs;
 }
 
+#if defined(CONFIG_MACH_LGE) && defined(CONFIG_SND_SOC_ES9218P)
+//Plug-in impedance can be measured before the plug is seated; measure again once detection settles
+static void lge_mbhc_remeasure_impedance(struct wcd_mbhc *mbhc)
+{
+	uint32_t zl = mbhc->zl, zr = mbhc->zr;
+	bool is_pa_on = false;
+
+	WCD_MBHC_RSC_ASSERT_LOCKED(mbhc);
+
+	if (!mbhc->impedance_detect || !mbhc->mbhc_cb->compute_impedance ||
+	    !mbhc->mbhc_cfg->linein_th)
+		return;
+	if (mbhc->current_plug != MBHC_PLUG_TYPE_HEADPHONE &&
+	    mbhc->current_plug != MBHC_PLUG_TYPE_HEADSET &&
+	    mbhc->current_plug != MBHC_PLUG_TYPE_HIGH_HPH)
+		return;
+	//Only while the codec drives the jack (DAC at most in bypass) and is silent
+	if (es9218_get_power_state() > LGE_ESS_PS_BYPASS)
+		return;
+	if (mbhc->mbhc_cb->hph_pa_on_status)
+		is_pa_on = mbhc->mbhc_cb->hph_pa_on_status(mbhc->codec);
+	if (is_pa_on)
+		return;
+
+	mbhc->mbhc_cb->compute_impedance(mbhc, &mbhc->zl, &mbhc->zr);
+	lge_set_sdev_name(mbhc, mbhc->hph_status & ~SND_JACK_MECHANICAL);
+	if (mbhc->zl != zl || mbhc->zr != zr)
+		pr_info("[LGE MBHC] %s: L/R %d/%d -> %d/%d (%s)\n", __func__,
+			zl, zr, mbhc->zl, mbhc->zr, mbhc->sdev.name);
+}
+#endif
+
 static void wcd_correct_swch_plug(struct work_struct *work)
 {
 	struct wcd_mbhc *mbhc;
@@ -1455,6 +1488,10 @@ static void wcd_correct_swch_plug(struct work_struct *work)
 	int rc, spl_hs_count = 0;
 	int cross_conn;
 	int try = 0;
+#ifdef CONFIG_MACH_LGE
+	int lge_iter = 0;
+	u32 lge_loop_state, lge_prev_state = ~0U;
+#endif
 
 	pr_debug("%s: enter\n", __func__);
 
@@ -1502,6 +1539,10 @@ static void wcd_correct_swch_plug(struct work_struct *work)
 		else
 			plug_type = MBHC_PLUG_TYPE_INVALID;
 	}
+#ifdef CONFIG_MACH_LGE
+	pr_info("[LGE MBHC] %s: btn_irq=%d btn=0x%x hs_comp=%d -> plug_type %d\n",
+		__func__, rc ? 1 : 0, btn_result, hs_comp_res, plug_type);
+#endif
 
 	do {
 		cross_conn = wcd_check_cross_conn(mbhc);
@@ -1698,6 +1739,19 @@ correct_plug_type:
 
 		WCD_MBHC_REG_READ(WCD_MBHC_HPHL_SCHMT_RESULT, hphl_sch);
 		WCD_MBHC_REG_READ(WCD_MBHC_MIC_SCHMT_RESULT, mic_sch);
+#ifdef CONFIG_MACH_LGE
+		//Log only when the comparator/trigger/button picture changes
+		lge_iter++;
+		lge_loop_state = (hs_comp_res ? 1 : 0) | (hphl_sch ? 2 : 0) |
+				 (mic_sch ? 4 : 0) | (mbhc->btn_press_intr ? 8 : 0) |
+				 (plug_type << 4) | (mbhc->current_plug << 12);
+		if (lge_loop_state != lge_prev_state) {
+			pr_info("[LGE MBHC] %s: loop %d hs_comp=%d hphl_sch=%d mic_sch=%d btn_intr=%d plug_type %d current %d\n",
+				__func__, lge_iter, hs_comp_res, hphl_sch, mic_sch,
+				mbhc->btn_press_intr, plug_type, mbhc->current_plug);
+			lge_prev_state = lge_loop_state;
+		}
+#endif
 		if (hs_comp_res && !(hphl_sch || mic_sch)) {
 #ifdef CONFIG_MACH_LGE
 			if (mbhc->mbhc_cfg->detect_extn_cable == false) {
@@ -1794,6 +1848,11 @@ correct_plug_type:
 			wrk_complete = false;
 		}
 	}
+#ifdef CONFIG_MACH_LGE
+	pr_info("[LGE MBHC] %s: loop done after %d, wrk_complete=%d btn_intr=%d btn_mask=0x%x plug_type %d current %d\n",
+		__func__, lge_iter, wrk_complete, mbhc->btn_press_intr,
+		wcd_mbhc_get_button_mask(mbhc), plug_type, mbhc->current_plug);
+#endif
 	if (!wrk_complete && mbhc->btn_press_intr) {
 #ifndef CONFIG_MACH_LGE
 		pr_debug("%s: Can be slow insertion of headphone\n", __func__);
@@ -1864,6 +1923,10 @@ report:
 	pr_debug("%s: Valid plug found, plug type %d wrk_cmpt %d btn_intr %d\n",
 			__func__, plug_type, wrk_complete,
 			mbhc->btn_press_intr);
+#ifdef CONFIG_MACH_LGE
+	pr_info("[LGE MBHC] %s: report plug_type %d (current %d)\n",
+		__func__, plug_type, mbhc->current_plug);
+#endif
 	WCD_MBHC_RSC_LOCK(mbhc);
 	wcd_mbhc_find_plug_and_report(mbhc, plug_type);
 	WCD_MBHC_RSC_UNLOCK(mbhc);
@@ -1872,6 +1935,14 @@ enable_supply:
 		wcd_mbhc_update_fsm_source(mbhc, plug_type);
 	else
 		wcd_enable_mbhc_supply(mbhc, plug_type);
+#if defined(CONFIG_MACH_LGE) && defined(CONFIG_SND_SOC_ES9218P)
+	//Micbias (and with it the codec clock) is still on here; exit drops it for headphones
+	if (!mbhc->hs_detect_work_stop && !wcd_swch_level_remove(mbhc)) {
+		WCD_MBHC_RSC_LOCK(mbhc);
+		lge_mbhc_remeasure_impedance(mbhc);
+		WCD_MBHC_RSC_UNLOCK(mbhc);
+	}
+#endif
 exit:
 	if (mbhc->mbhc_cb->mbhc_micbias_control &&
 	    !mbhc->micbias_enable)
