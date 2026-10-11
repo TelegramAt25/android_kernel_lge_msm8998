@@ -335,6 +335,7 @@ static int g_avc_volume = 0;
 static int g_volume = 0;
 static int g_left_volume = 0;
 static int g_right_volume = 0;
+static int g_playback_atten[2] = { 0, 0 }; // HAL stream volume, 0.5 dB steps
 static int g_sabre_cf_num = 8; // default = 8
 static int g_dop_flag = 0;
 static int g_auto_mute_flag = 0;
@@ -723,6 +724,20 @@ static int es9218_set_avc_volume(struct i2c_client *client, int vol)
     return ret;
 }
 
+/* Registers 15/16: balance plus the playback attenuation, 0xFF is the floor */
+static int es9218_channel_volume(int balance, int atten)
+{
+    return min(balance + atten, 0xFF);
+}
+
+static void es9218_write_volume(void)
+{
+    es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_15,
+            es9218_channel_volume(g_left_volume, g_playback_atten[0]));
+    es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_16,
+            es9218_channel_volume(g_right_volume, g_playback_atten[1]));
+}
+
 static int es9218_set_thd(struct i2c_client *client, int headset)
 {
     int ret = 0;
@@ -904,7 +919,7 @@ static bool es9218_sysfs_is_hifi(void)
 
 /* Balance volume, in 0.5 dB attenuation steps */
 static ssize_t es9218_sysfs_set_balance(const char *buf, size_t count,
-                   int *volume, int reg)
+                   int *volume)
 {
     int input_val;
 
@@ -916,7 +931,7 @@ static ssize_t es9218_sysfs_set_balance(const char *buf, size_t count,
     mutex_lock(&g_es9218_priv->power_lock);
     *volume = input_val;
     if (es9218_sysfs_is_hifi())
-        es9218_write_reg(g_es9218_priv->i2c_client, reg, *volume);
+        es9218_write_volume();
     mutex_unlock(&g_es9218_priv->power_lock);
 
     return count;
@@ -926,7 +941,7 @@ static ssize_t es9218_sysfs_set_balance(const char *buf, size_t count,
 static ssize_t set_forced_left_volume(struct device *dev,
                    struct device_attribute *attr,
                    const char *buf, size_t count) {
-    return es9218_sysfs_set_balance(buf, count, &g_left_volume, ES9218P_REG_15);
+    return es9218_sysfs_set_balance(buf, count, &g_left_volume);
 }
 static ssize_t get_forced_left_volume(struct device *dev,
                    struct device_attribute *attr,
@@ -939,7 +954,7 @@ static DEVICE_ATTR(left_volume, S_IWUSR|S_IRUGO, get_forced_left_volume, set_for
 static ssize_t set_forced_right_volume(struct device *dev,
                    struct device_attribute *attr,
                    const char *buf, size_t count) {
-    return es9218_sysfs_set_balance(buf, count, &g_right_volume, ES9218P_REG_16);
+    return es9218_sysfs_set_balance(buf, count, &g_right_volume);
 }
 static ssize_t get_forced_right_volume(struct device *dev,
                    struct device_attribute *attr,
@@ -1973,11 +1988,11 @@ static int es9218p_sabre_bypass2hifi(void)
 #endif    
     es9218_set_thd(g_es9218_priv->i2c_client, g_headset_type);
     es9218_sabre_cfg_custom_filter(&es9218_sabre_custom_ft[g_sabre_cf_num]);        // set digital filter
-    es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_15, g_left_volume);     // set left channel digital volume level
-    es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_16, g_right_volume);    // set right channel digital volume level
+    es9218_write_volume();                                                          // set channel digital volume levels
 
 #ifdef SHOW_LOGS
-    pr_info("%s() : g_left_volume = %d, g_right_volume = %d \n", __func__, g_left_volume, g_right_volume);
+    pr_info("%s() : g_left_volume = %d, g_right_volume = %d, atten = %d/%d \n", __func__, g_left_volume, g_right_volume,
+            g_playback_atten[0], g_playback_atten[1]);
 #endif
 
     es9218_master_trim(g_es9218_priv->i2c_client, g_volume);                        // set master trim level
@@ -2647,17 +2662,16 @@ static void mute_work_function(struct work_struct *work)
 			g_left_fade_vol = g_left_fade_vol - g_left_fade_vol_per_step;
 			g_right_fade_vol = g_right_fade_vol - g_right_fade_vol_per_step;
 
-       			if(g_left_fade_vol < g_left_volume)
-			    g_left_fade_vol = g_left_volume;
-		        if(g_right_fade_vol < g_right_volume)
-			    g_right_fade_vol = g_right_volume;
+       			if(g_left_fade_vol < es9218_channel_volume(g_left_volume, g_playback_atten[0]))
+			    g_left_fade_vol = es9218_channel_volume(g_left_volume, g_playback_atten[0]);
+		        if(g_right_fade_vol < es9218_channel_volume(g_right_volume, g_playback_atten[1]))
+			    g_right_fade_vol = es9218_channel_volume(g_right_volume, g_playback_atten[1]);
 
 			es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_15, g_left_fade_vol);
                         es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_16, g_right_fade_vol);
                         queue_delayed_work(mute_workqueue , mute_work, msecs_to_jiffies(get_fade_term_define()) ); // 100 msec
 		} else {
-            es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_15, g_left_volume);
-            es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_16, g_right_volume);
+            es9218_write_volume();
 
 			pr_info("%s(): case 4 called volume direction %d, g_fade_count %d\n", __func__, fade_direction, g_fade_count);
 		}
@@ -2696,10 +2710,10 @@ static int lge_ess_fade_inout_put(struct snd_kcontrol *kcontrol, struct snd_ctl_
         fade_direction = VOLUME_DOWN;
     } else {
         g_fade_count = get_fade_count_define();
-        g_left_fade_vol = g_left_volume;
-        g_right_fade_vol = g_right_volume;
-        g_left_fade_vol_per_step = (0xff - g_left_volume) / g_fade_count;
-        g_right_fade_vol_per_step = (0xff - g_right_volume) / g_fade_count;
+        g_left_fade_vol = es9218_channel_volume(g_left_volume, g_playback_atten[0]);
+        g_right_fade_vol = es9218_channel_volume(g_right_volume, g_playback_atten[1]);
+        g_left_fade_vol_per_step = (0xff - g_left_fade_vol) / g_fade_count;
+        g_right_fade_vol_per_step = (0xff - g_right_fade_vol) / g_fade_count;
         fade_direction = VOLUME_DOWN;
         pr_info("%s(): start fade in/out g_left_volume %d, g_right_volume %d \n", __func__, g_left_volume, g_right_volume);
     }
@@ -2805,7 +2819,7 @@ static int es9218_left_volume_put(struct snd_kcontrol *kcontrol,
         return -EINVAL;
     }
 
-    es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_15, g_left_volume);
+    es9218_write_volume();
     return ret;
 }
 
@@ -2831,8 +2845,37 @@ static int es9218_right_volume_put(struct snd_kcontrol *kcontrol,
         return -EINVAL;
     }
 
-    es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_16, g_right_volume);
+    es9218_write_volume();
     return ret;
+}
+
+static int es9218_playback_atten_get(struct snd_kcontrol *kcontrol,
+        struct snd_ctl_elem_value *ucontrol)
+{
+    ucontrol->value.integer.value[0] = g_playback_atten[0];
+    ucontrol->value.integer.value[1] = g_playback_atten[1];
+    return 0;
+}
+
+/* Stored in any state, so the HAL can set it before the stream starts */
+static int es9218_playback_atten_put(struct snd_kcontrol *kcontrol,
+        struct snd_ctl_elem_value *ucontrol)
+{
+    long left = ucontrol->value.integer.value[0];
+    long right = ucontrol->value.integer.value[1];
+
+    if (left < 0 || left > 0xFF || right < 0 || right > 0xFF)
+        return -EINVAL;
+
+    mutex_lock(&g_es9218_priv->power_lock);
+    g_playback_atten[0] = left;
+    g_playback_atten[1] = right;
+    if (es9218_power_state >= ESS_PS_HIFI)
+        es9218_write_volume();
+    mutex_unlock(&g_es9218_priv->power_lock);
+    pr_debug("%s(): -%ld.%ld/-%ld.%ld dB\n", __func__, left / 2, (left % 2) * 5, right / 2, (right % 2) * 5);
+
+    return 0;
 }
 
 static int es9218_filter_enum_get(struct snd_kcontrol *kcontrol,
@@ -3126,6 +3169,9 @@ static struct snd_kcontrol_new es9218_digital_ext_snd_controls[] = {
     SOC_SINGLE_EXT("Es9018 Master Volume", SND_SOC_NOPM, 0, 100, 0,
                     es9218_master_volume_get,
                     es9218_master_volume_put),
+    SOC_DOUBLE_EXT("Es9018 Playback Attenuation", SND_SOC_NOPM, 0, 8, 0xFF, 0,
+                    es9218_playback_atten_get,
+                    es9218_playback_atten_put),
     SOC_SINGLE_EXT("HIFI Custom Filter", SND_SOC_NOPM, 0, 12, 0, //current 0~3 custom filter num 4~11 built-in filter
                     es9218_filter_enum_get,
                     es9218_filter_enum_put),
