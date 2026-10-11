@@ -3622,16 +3622,47 @@ static int es9218_set_dai_fmt(struct snd_soc_dai *codec_dai, unsigned int fmt)
     return 0;
 }
 
+/*
+ * The I2S port (MSM clock master) and the DoP TDM port (DAC clock master) share
+ * the pins: one link at a time, and the DoP registers only on the TDM port.
+ */
+static int es9218_link = -1;
+
+static int es9218_claim_link(struct snd_pcm_substream *substream)
+{
+    struct snd_soc_pcm_runtime *rtd = substream->private_data;
+    int tdm = strstr(rtd->dai_link->name, "TDM") != NULL;
+
+    if (es9218_link >= 0 && es9218_link != tdm) {
+        pr_err("%s(): %s busy with the other port\n", __func__, rtd->dai_link->name);
+        return -EBUSY;
+    }
+    es9218_link = tdm;
+    if (!tdm && g_dop_flag) {
+        pr_err("%s(): DoP%d on the I2S port, playing PCM\n", __func__, g_dop_flag);
+        prev_dop_flag = g_dop_flag;
+        g_dop_flag = 0;
+        mode_changed = 1;
+    }
+    return 0;
+}
+
 static int es9218_startup(struct snd_pcm_substream *substream,
                struct snd_soc_dai *dai)
 {
 //  struct snd_soc_codec *codec = dai->codec;
+    int ret;
 
 #ifdef SHOW_LOGS
     pr_info("%s(): entry\n", __func__);
 #endif
 
     mutex_lock(&g_es9218_priv->power_lock);
+    ret = es9218_claim_link(substream);
+    if (ret) {
+        mutex_unlock(&g_es9218_priv->power_lock);
+        return ret;
+    }
     call_common_init_registers = 1;
 
     cancel_delayed_work_sync(&g_es9218_priv->sleep_work);
@@ -3718,6 +3749,7 @@ static void es9218_shutdown(struct snd_pcm_substream *substream,
 #endif
 
     es9218_sabre_audio_idle();
+    es9218_link = -1;
 
 #ifdef ES9218P_DEBUG
     wake_lock_timeout(&g_es9218_priv->shutdown_lock, msecs_to_jiffies( 10 ));
