@@ -578,7 +578,7 @@ static char const *tdm_bit_format_text[] = {"S16_LE", "S24_LE", "S32_LE"};
 static char const *tdm_sample_rate_text[] = {"KHZ_8", "KHZ_16", "KHZ_32",
 					     "KHZ_44P1", "KHZ_48", "KHZ_96",
 					     "KHZ_192", "KHZ_352P8", "KHZ_384",
-					     "KHZ_176P4"}; // DoP64 on QUAT TDM
+					     "KHZ_176P4", "KHZ_88P2"}; // 44.1 kHz family on QUAT TDM
 static const char *const tdm_slot_num_text[] = {"One", "Two", "Four",
 	"Eight", "Sixteen", "ThirtyTwo"};
 static const char *const tdm_slot_width_text[] = {"16", "24", "32"};
@@ -1909,6 +1909,9 @@ static int tdm_get_sample_rate(int value)
 	case 9:
 		sample_rate = SAMPLING_RATE_176P4KHZ;
 		break;
+	case 10:
+		sample_rate = SAMPLING_RATE_88P2KHZ;
+		break;
 	default:
 		sample_rate = SAMPLING_RATE_48KHZ;
 		break;
@@ -1966,6 +1969,9 @@ static int tdm_get_sample_rate_val(int sample_rate)
 		break;
 	case SAMPLING_RATE_176P4KHZ:
 		sample_rate_val = 9;
+		break;
+	case SAMPLING_RATE_88P2KHZ:
+		sample_rate_val = 10;
 		break;
 	default:
 		sample_rate_val = 4;
