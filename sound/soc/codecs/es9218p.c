@@ -19,6 +19,7 @@
 #include    <linux/slab.h>
 #include    <linux/delay.h>
 #include    <linux/pm.h>
+#include    <linux/suspend.h>
 #include    <linux/platform_device.h>
 #include    <linux/wakelock.h>
 #include    <sound/core.h>
@@ -2396,10 +2397,9 @@ static void es9218_sabre_sleep_work (struct work_struct *work)
         force_set_clamper_by_sleep_work = 0;
 #endif /* WORKAROUND_TICK_NOISE */
 
-        if (es9218_lowfi) {
-            wake_lock_timeout(&g_es9218_priv->sleep_lock, msecs_to_jiffies(g_lowfi_hold_ms + 1000));
+        // No wake lock: the PM notifier drops to LPB if the system suspends first
+        if (es9218_lowfi)
             schedule_delayed_work(&g_es9218_priv->lowfi_work, msecs_to_jiffies(g_lowfi_hold_ms));
-        }
     }
     else {
         pr_info("%s(): sleep_work state is %s skip operation \n", __func__, power_state[es9218_power_state]);
@@ -2426,6 +2426,20 @@ static void es9218_sabre_lowfi_work(struct work_struct *work)
     }
     mutex_unlock(&g_es9218_priv->power_lock);
 }
+
+// Don't stay parked through suspend
+static int es9218_pm_notify(struct notifier_block *nb, unsigned long event, void *unused)
+{
+    if (event != PM_SUSPEND_PREPARE)
+        return NOTIFY_DONE;
+    cancel_delayed_work(&g_es9218_priv->lowfi_work);
+    es9218_sabre_lowfi_work(NULL);
+    return NOTIFY_OK;
+}
+
+static struct notifier_block es9218_pm_nb = {
+    .notifier_call = es9218_pm_notify,
+};
 
 static int es9218_power_state_get(struct snd_kcontrol *kcontrol,
         struct snd_ctl_elem_value *ucontrol)
@@ -3848,6 +3862,7 @@ static int es9218_probe(struct i2c_client *client,const struct i2c_device_id *id
     INIT_DELAYED_WORK(&g_es9218_priv->lowfi_work, es9218_sabre_lowfi_work);
 
     mutex_init(&g_es9218_priv->power_lock);
+    register_pm_notifier(&es9218_pm_nb);
 #if 0
     ret = gpio_request_one(pdata->ear_dbg, GPIOF_IN,"gpio_earjack_debugger");
     if (ret < 0) {
@@ -3940,6 +3955,7 @@ static int es9218_remove(struct i2c_client *client)
         regulator_put(pdata->vreg_dvdd);
 #endif
     snd_soc_unregister_codec(&client->dev);
+    unregister_pm_notifier(&es9218_pm_nb);
     mutex_destroy(&g_es9218_priv->power_lock);
     return 0;
 }
