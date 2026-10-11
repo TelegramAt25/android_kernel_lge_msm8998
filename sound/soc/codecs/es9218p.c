@@ -2298,12 +2298,38 @@ static int es9218p_master_div(unsigned int rate)
     }
 }
 
+// NCO_NUM for 48 kHz-family PCM master on the TDM port: FSR = NCO_NUM x MCLK / 2^32, 0 if none (384 kHz fails on the link)
+static u32 es9218p_master_nco(unsigned int rate)
+{
+    switch (rate) {
+    case 48000:  return 0x0045A8ED;
+    case 96000:  return 0x008B51DA;
+    case 192000: return 0x0116A3B3;
+    default:     return 0;
+    }
+}
+
+// R37-34 NCO_NUM, LSB first; nonzero overrides MASTER_DIV, so clear it for every other mode
+static void es9218p_set_nco(u32 nco)
+{
+    int i;
+
+    for (i = 0; i < 4; i++)
+        es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_34 + i, (nco >> (8 * i)) & 0xff);
+}
+
+static bool es9218p_master_rate(unsigned int rate)
+{
+    return es9218p_master_div(rate) >= 0 || es9218p_master_nco(rate);
+}
+
 // PCM on the TDM port: the DAC clocks the link from its crystal at MCLK/1 (CLK_GEAR stays /1, slower gears break I2C)
 static int es9218p_set_pcm_master(bool master, unsigned int rate)
 {
     int div = es9218p_master_div(rate);
 
     es9218_pcm_master = master;
+    es9218p_set_nco(master ? es9218p_master_nco(rate) : 0);
     if (!master)
         return es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_10, 0x02);
     es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_00, 0x00);   // MCLK/1
@@ -3606,8 +3632,8 @@ static int es9218_pcm_hw_params(struct snd_pcm_substream *substream,
 #ifdef SHOW_LOGS
         pr_info("%s(): PCM Format Running \n", __func__);
 #endif
-        if (es9218_link == 1 && es9218p_master_div(es9218_rate) < 0) {
-            pr_err("%s(): %u Hz PCM on the TDM port, 44.1 kHz family only\n", __func__, es9218_rate);
+        if (es9218_link == 1 && !es9218p_master_rate(es9218_rate)) {
+            pr_err("%s(): %u Hz PCM on the TDM port, 44.1-352.8 kHz only\n", __func__, es9218_rate);
             return -EINVAL;
         }
         es9218p_set_pcm_master(es9218_link == 1, es9218_rate);
@@ -3631,6 +3657,7 @@ static int es9218_pcm_hw_params(struct snd_pcm_substream *substream,
         // set bit width to ESS
         ret = es9218p_set_bit_width(g_dop_flag, ESS_MODE_DoP);
         es9218_set_osf_bypass(false);
+        es9218p_set_nco(0);
     }
 
     // changing a mode is done here, so reset mode_changed
