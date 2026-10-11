@@ -77,6 +77,7 @@ static int es9218p_set_volume_rate(unsigned int sample_rate, unsigned int ess_mo
 static int es9218p_set_bit_width(unsigned int bit_width, unsigned int ess_mode);
 static void es9218p_initialize_registers(unsigned int ess_mode);
 static int es9218_sabre_cfg_custom_filter(struct sabre_custom_filter *sabre_filter);
+static int es9218_write_reg07(u8 value);
 
 #ifdef CONFIG_SND_SOC_LGE_ESS_DIGITAL_FILTER
 static int get_fade_count_define(void);
@@ -330,6 +331,7 @@ static unsigned int es9218_power_state = ESS_PS_CLOSE;
 static unsigned int es9218_is_amp_on = 0;
 static unsigned int es9218_bps = 16;
 static unsigned int es9218_rate = 48000;
+static bool es9218_osf_bypass;  // oversampling filter bypassed, see es9218_write_reg07()
 
 static int g_headset_type = 0;
 static int g_avc_volume = 0;
@@ -1294,9 +1296,10 @@ static ssize_t es9218_status_show(struct device *dev,
         chip = "ES9228";
 
     return scnprintf(buf, PAGE_SIZE,
-            "state=%s\nrate=%u\nbits=%u\ndop=%d\nheadset_type=%d\nchip=%s\nzl=%u\nzr=%u\nlowfi=%d\n",
+            "state=%s\nrate=%u\nbits=%u\ndop=%d\nheadset_type=%d\nchip=%s\nzl=%u\nzr=%u\nlowfi=%d\n"
+            "osf_bypass=%d\n",
             power_state[es9218_power_state], es9218_rate, es9218_bps, g_dop_flag,
-            g_headset_type, chip, zl, zr, es9218_lowfi);
+            g_headset_type, chip, zl, zr, es9218_lowfi, es9218_osf_bypass);
 }
 static DEVICE_ATTR(status, S_IRUGO, es9218_status_show, NULL);
 
@@ -1361,6 +1364,31 @@ static const struct attribute_group es9218_attr_group = {
 
 #endif
 /*
+ * The 45.1584 MHz crystal is below 128 x fs above 192 kHz, which the oversampling
+ * filter needs (audible hiss at 384 kHz); bypassed, the DAC needs only 24 x fs. Players
+ * sending 352.8/384 kHz have already oversampled, so bypass it for those streams.
+ */
+#define ES9218P_BYPASS_OSF  0x08
+static u8 es9218_reg07;
+
+static int es9218_write_reg07(u8 value)
+{
+    es9218_reg07 = value & ~ES9218P_BYPASS_OSF;
+    if (es9218_osf_bypass)
+        value |= ES9218P_BYPASS_OSF;
+    return es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_07, value);
+}
+
+// Rewritten for every stream: startup programs the filter before the new rate is known
+static void es9218_set_osf_bypass(bool bypass)
+{
+    if (bypass != es9218_osf_bypass)
+        pr_info("%s(): oversampling filter %s\n", __func__, bypass ? "bypassed" : "on");
+    es9218_osf_bypass = bypass;
+    es9218_write_reg07(es9218_reg07);
+}
+
+/*
  *  Program stage1 and stage2 filter coefficients
  */
 static int es9218_sabre_cfg_custom_filter(struct sabre_custom_filter *sabre_filter)
@@ -1380,42 +1408,42 @@ static int es9218_sabre_cfg_custom_filter(struct sabre_custom_filter *sabre_filt
             case 4:
             // 3b000: linear phase fast roll-off filter
                 rv = 0x00;
-                rc = es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_07, rv);
+                rc = es9218_write_reg07(rv);
                 break;
             case 5:
             // 3b001: linear phase slow roll-off filter
                 rv = 0x20;
-                rc = es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_07, rv);
+                rc = es9218_write_reg07(rv);
                 break;
             case 6:
             // 3b010: minimum phase fast roll-off filter #1
                 rv = 0x40;
-                rc = es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_07, rv);
+                rc = es9218_write_reg07(rv);
                 break;
             case 7:
             // 3b011: minimum phase slow roll-off filter
                 rv = 0x60;
-                rc = es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_07, rv);
+                rc = es9218_write_reg07(rv);
                 break;
             case 8:
             // 3b100: apodizing fast roll-off filter type 1 (default)
                 rv = 0x80;
-                rc = es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_07, rv);
+                rc = es9218_write_reg07(rv);
                 break;
             case 9:
             // 3b101: apodizing fast roll-off filter type 2
                 rv = 0xA0;
-                rc = es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_07, rv);
+                rc = es9218_write_reg07(rv);
                 break;
             case 10:
             // 3b110: hybrid fast roll-off filter
                 rv = 0xC0;
-                rc = es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_07, rv);
+                rc = es9218_write_reg07(rv);
                 break;
             case 11:
             // 3b111: brick wall filter
                 rv = 0xE0;
-                rc = es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_07, rv);
+                rc = es9218_write_reg07(rv);
                 break;
             default:
                 pr_info("%s(): default = %d \n", __func__, g_sabre_cf_num);
@@ -1461,7 +1489,7 @@ static int es9218_sabre_cfg_custom_filter(struct sabre_custom_filter *sabre_filt
 
     rv = (sabre_filter->shape << 5); // select the custom filter roll-off shape
     rv |= 0x80;
-    rc = es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_07, rv);
+    rc = es9218_write_reg07(rv);
     if (rc < 0) {
         pr_err("%s: rc = %d return ",__func__, rc);
         return rc;
@@ -3552,6 +3580,7 @@ static int es9218_pcm_hw_params(struct snd_pcm_substream *substream,
 
         // set volume rate to ESS
         ret = es9218p_set_volume_rate(es9218_rate, ESS_MODE_PCM);
+        es9218_set_osf_bypass(es9218_rate > 192000);
 
 #ifdef ENABLE_DOP_AUTO_MUTE
         es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_04, 0x00);
@@ -3564,6 +3593,7 @@ static int es9218_pcm_hw_params(struct snd_pcm_substream *substream,
 
         // set bit width to ESS
         ret = es9218p_set_bit_width(g_dop_flag, ESS_MODE_DoP);
+        es9218_set_osf_bypass(false);
     }
 
     // changing a mode is done here, so reset mode_changed
