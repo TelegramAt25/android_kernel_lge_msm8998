@@ -75,7 +75,7 @@ static int  es9218p_standby2lpb(void);
 static int  es9218p_lpb2standby(void);
 static int es9218p_set_volume_rate(unsigned int sample_rate, unsigned int ess_mode);
 static int es9218p_set_bit_width(unsigned int bit_width, unsigned int ess_mode);
-static int es9218p_set_pcm_master(bool master);
+static int es9218p_set_pcm_master(bool master, unsigned int rate);
 static void es9218p_initialize_registers(unsigned int ess_mode);
 static int es9218_sabre_cfg_custom_filter(struct sabre_custom_filter *sabre_filter);
 static int es9218_write_reg07(u8 value);
@@ -2029,7 +2029,7 @@ static int es9218p_sabre_bypass2hifi(void)
 
         // set bit width to ESS
         es9218p_set_bit_width(es9218_bps, ESS_MODE_PCM);
-        es9218p_set_pcm_master(es9218_link == 1);
+        es9218p_set_pcm_master(es9218_link == 1, es9218_rate);
 
     }
     else if (g_dop_flag > 0) { //  DOP
@@ -2286,13 +2286,29 @@ static int es9218p_set_volume_rate(unsigned int sample_rate, unsigned int ess_mo
 
 }
 
-// PCM on the TDM port: the DAC clocks the link from its crystal, MCLK/1 = 64 x 352.8 kHz
-static int es9218p_set_pcm_master(bool master)
+// R10 MASTER_DIV [6:5] for PCM on the TDM port: DATA_CLK = MCLK/2..16 = 64 x 352.8..44.1 kHz, -1 if unsupported
+static int es9218p_master_div(unsigned int rate)
 {
+    switch (rate) {
+    case 352800: return 0;
+    case 176400: return 1;
+    case 88200:  return 2;
+    case 44100:  return 3;
+    default:     return -1;
+    }
+}
+
+// PCM on the TDM port: the DAC clocks the link from its crystal at MCLK/1 (CLK_GEAR stays /1, slower gears break I2C)
+static int es9218p_set_pcm_master(bool master, unsigned int rate)
+{
+    int div = es9218p_master_div(rate);
+
     es9218_pcm_master = master;
-    if (master)
-        es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_00, 0x00);   // MCLK/1
-    return es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_10, master ? 0x82 : 0x02);
+    if (!master)
+        return es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_10, 0x02);
+    es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_00, 0x00);   // MCLK/1
+    return es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_10,
+            0x82 | ((div < 0 ? 0 : div) << 5));
 }
 
 static int es9218p_set_bit_width(unsigned int bit_width, unsigned int ess_mode)
@@ -3590,11 +3606,11 @@ static int es9218_pcm_hw_params(struct snd_pcm_substream *substream,
 #ifdef SHOW_LOGS
         pr_info("%s(): PCM Format Running \n", __func__);
 #endif
-        if (es9218_link == 1 && es9218_rate != 352800) {
-            pr_err("%s(): %u Hz PCM on the TDM port, only 352.8 kHz\n", __func__, es9218_rate);
+        if (es9218_link == 1 && es9218p_master_div(es9218_rate) < 0) {
+            pr_err("%s(): %u Hz PCM on the TDM port, 44.1 kHz family only\n", __func__, es9218_rate);
             return -EINVAL;
         }
-        es9218p_set_pcm_master(es9218_link == 1);
+        es9218p_set_pcm_master(es9218_link == 1, es9218_rate);
 
         // set bit width to ESS
         ret = es9218p_set_bit_width(es9218_bps, ESS_MODE_PCM);
