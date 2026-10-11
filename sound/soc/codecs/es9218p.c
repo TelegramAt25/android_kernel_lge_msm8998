@@ -2330,6 +2330,8 @@ static int es9218p_set_pcm_master(bool master, unsigned int rate)
 
     es9218_pcm_master = master;
     es9218p_set_nco(master ? es9218p_master_nco(rate) : 0);
+    // The TDM frame sync arrives inverted, so swap the channels back as LG's DoP table does
+    es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_02, master ? 0x31 : 0x34);
     if (!master)
         return es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_10, 0x02);
     es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_00, 0x00);   // MCLK/1
