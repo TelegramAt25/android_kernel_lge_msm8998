@@ -75,6 +75,7 @@ static int  es9218p_standby2lpb(void);
 static int  es9218p_lpb2standby(void);
 static int es9218p_set_volume_rate(unsigned int sample_rate, unsigned int ess_mode);
 static int es9218p_set_bit_width(unsigned int bit_width, unsigned int ess_mode);
+static int es9218p_set_pcm_master(bool master);
 static void es9218p_initialize_registers(unsigned int ess_mode);
 static int es9218_sabre_cfg_custom_filter(struct sabre_custom_filter *sabre_filter);
 static int es9218_write_reg07(u8 value);
@@ -332,6 +333,8 @@ static unsigned int es9218_is_amp_on = 0;
 static unsigned int es9218_bps = 16;
 static unsigned int es9218_rate = 48000;
 static bool es9218_osf_bypass;  // oversampling filter bypassed, see es9218_write_reg07()
+static int es9218_link = -1;    // open link: 0 I2S, 1 TDM, see es9218_claim_link()
+static bool es9218_pcm_master;  // PCM with the DAC as clock master (TDM port)
 
 static int g_headset_type = 0;
 static int g_avc_volume = 0;
@@ -2026,6 +2029,7 @@ static int es9218p_sabre_bypass2hifi(void)
 
         // set bit width to ESS
         es9218p_set_bit_width(es9218_bps, ESS_MODE_PCM);
+        es9218p_set_pcm_master(es9218_link == 1);
 
     }
     else if (g_dop_flag > 0) { //  DOP
@@ -2282,6 +2286,15 @@ static int es9218p_set_volume_rate(unsigned int sample_rate, unsigned int ess_mo
 
 }
 
+// PCM on the TDM port: the DAC clocks the link from its crystal, MCLK/1 = 64 x 352.8 kHz
+static int es9218p_set_pcm_master(bool master)
+{
+    es9218_pcm_master = master;
+    if (master)
+        es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_00, 0x00);   // MCLK/1
+    return es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_10, master ? 0x82 : 0x02);
+}
+
 static int es9218p_set_bit_width(unsigned int bit_width, unsigned int ess_mode)
 {
     int ret = -1;
@@ -2289,6 +2302,8 @@ static int es9218p_set_bit_width(unsigned int bit_width, unsigned int ess_mode)
     u8  in_cfg_reg = 0;
 
     if( ess_mode == ESS_MODE_PCM ) {
+        if (es9218_link == 1)
+            bit_width = 32; // TDM slots are 32-bit
         /*  Bit width(depth) Per Sec. Setting     */
         switch (bit_width) {
             case 16 :
@@ -2417,7 +2432,7 @@ static void es9218_sabre_sleep_work (struct work_struct *work)
         force_set_clamper_by_sleep_work = 1;
 #endif /* WORKAROUND_TICK_NOISE */
 
-        es9218_park_lowfi = g_lowfi_hold_ms > 0 && !g_dop_flag;
+        es9218_park_lowfi = g_lowfi_hold_ms > 0 && !g_dop_flag && !es9218_pcm_master;
         es9218p_sabre_hifi2lpb();
         es9218_park_lowfi = false;
 
@@ -3575,6 +3590,12 @@ static int es9218_pcm_hw_params(struct snd_pcm_substream *substream,
 #ifdef SHOW_LOGS
         pr_info("%s(): PCM Format Running \n", __func__);
 #endif
+        if (es9218_link == 1 && es9218_rate != 352800) {
+            pr_err("%s(): %u Hz PCM on the TDM port, only 352.8 kHz\n", __func__, es9218_rate);
+            return -EINVAL;
+        }
+        es9218p_set_pcm_master(es9218_link == 1);
+
         // set bit width to ESS
         ret = es9218p_set_bit_width(es9218_bps, ESS_MODE_PCM);
 
@@ -3653,11 +3674,10 @@ static int es9218_set_dai_fmt(struct snd_soc_dai *codec_dai, unsigned int fmt)
 }
 
 /*
- * The I2S port (MSM clock master) and the DoP TDM port (DAC clock master) share
- * the pins: one link at a time, and the DoP registers only on the TDM port.
+ * The I2S port (MSM clock master) and the TDM port (DAC clock master: DoP, or
+ * 352.8 kHz PCM) share the pins: one link at a time (es9218_link), and the DoP
+ * registers only on the TDM port.
  */
-static int es9218_link = -1;
-
 static int es9218_claim_link(struct snd_pcm_substream *substream)
 {
     struct snd_soc_pcm_runtime *rtd = substream->private_data;
