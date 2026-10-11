@@ -339,6 +339,9 @@ static int g_playback_atten[2] = { 0, 0 }; // HAL stream volume, 0.5 dB steps
 static int g_sabre_cf_num = 8; // default = 8
 static int g_dop_flag = 0;
 static int g_auto_mute_flag = 0;
+static bool es9218_lowfi = false;       // parked in LowFi (RESETb high, R32 = 0) while state is BYPASS
+static bool es9218_park_lowfi = false;  // hifi2lpb() stops in LowFi instead of resetting
+static int g_lowfi_hold_ms = 30000;     // LowFi time after playback before LPB, 0 = straight to LPB
 static int g_soft_mute_ms = 150;        // soft mute ramp before the I2S clocks stop
 #ifdef ES9218P_DEBUG
 static int g_debug_delay = 500; // ESS pop-click debugging step time delay
@@ -1290,9 +1293,9 @@ static ssize_t es9218_status_show(struct device *dev,
         chip = "ES9228";
 
     return scnprintf(buf, PAGE_SIZE,
-            "state=%s\nrate=%u\nbits=%u\ndop=%d\nheadset_type=%d\nchip=%s\nzl=%u\nzr=%u\n",
+            "state=%s\nrate=%u\nbits=%u\ndop=%d\nheadset_type=%d\nchip=%s\nzl=%u\nzr=%u\nlowfi=%d\n",
             power_state[es9218_power_state], es9218_rate, es9218_bps, g_dop_flag,
-            g_headset_type, chip, zl, zr);
+            g_headset_type, chip, zl, zr, es9218_lowfi);
 }
 static DEVICE_ATTR(status, S_IRUGO, es9218_status_show, NULL);
 
@@ -1306,6 +1309,18 @@ static ssize_t es9218_ms_store(const char *buf, size_t count, int *ms, int max)
     *ms = input_val;
     return count;
 }
+
+static ssize_t lowfi_hold_ms_show(struct device *dev,
+                   struct device_attribute *attr, char *buf)
+{
+    return sprintf(buf, "%d\n", g_lowfi_hold_ms);
+}
+static ssize_t lowfi_hold_ms_store(struct device *dev,
+                   struct device_attribute *attr, const char *buf, size_t count)
+{
+    return es9218_ms_store(buf, count, &g_lowfi_hold_ms, 600000);
+}
+static DEVICE_ATTR(lowfi_hold_ms, S_IWUSR|S_IRUGO, lowfi_hold_ms_show, lowfi_hold_ms_store);
 
 static ssize_t soft_mute_ms_show(struct device *dev,
                    struct device_attribute *attr, char *buf)
@@ -1334,6 +1349,7 @@ static struct attribute *es9218_attrs[] = {
     &dev_attr_left_volume.attr,
 	&dev_attr_right_volume.attr,
     &dev_attr_status.attr,
+    &dev_attr_lowfi_hold_ms.attr,
     &dev_attr_soft_mute_ms.attr,
     NULL
 };
@@ -1801,6 +1817,24 @@ extern void wcd_set_clamp_on_mic(int value);
 static int force_set_clamper_by_sleep_work = 0;
 #endif /* WORKAROUND_TICK_NOISE */
 
+// LowFi (RESETb high, GPIO2 high) to Low Power Bypass
+static int  es9218p_sabre_lowfi2lpb(void)
+{
+#if defined(WORKAROUND_TICK_NOISE)
+    if( force_set_clamper_by_sleep_work )
+        wcd_set_clamp_on_mic(0);
+#endif /* WORKAROUND_TICK_NOISE */
+
+    es9218_reset_gpio_L();  // RESETb LOW move to Low Power Bypass mode
+
+#if defined(WORKAROUND_TICK_NOISE)
+    if( force_set_clamper_by_sleep_work )
+        wcd_set_clamp_on_mic(1);
+#endif /* WORKAROUND_TICK_NOISE */
+    es9218_lowfi = false;
+    return  0;
+}
+
 static int  es9218p_sabre_hifione2lpb(void)
 {
 #ifdef SHOW_LOGS
@@ -1818,6 +1852,12 @@ static int  es9218p_sabre_hifione2lpb(void)
     // sabre is now in LowFi mode controlled by GPIO2
     ///////////////////////////////
 
+    // Stay in LowFi: the reset into LPB is audible, resume skips it
+    if (es9218_park_lowfi) {
+        es9218_lowfi = true;
+        return 0;
+    }
+
     if(g_dop_flag) {
         pr_debug("%s: add 200ms delay before reset gpio set for dop playback case.\n",__func__);
         mdelay(200);
@@ -1828,17 +1868,7 @@ static int  es9218p_sabre_hifione2lpb(void)
     }
 #endif /* CONFIG_MACH_MSM8998_JOAN */
 
-#if defined(WORKAROUND_TICK_NOISE)
-    if( force_set_clamper_by_sleep_work )
-        wcd_set_clamp_on_mic(0);
-#endif /* WORKAROUND_TICK_NOISE */
-
-    es9218_reset_gpio_L();  // RESETb LOW move to Low Power Bypass mode
-
-#if defined(WORKAROUND_TICK_NOISE)
-    if( force_set_clamper_by_sleep_work )
-        wcd_set_clamp_on_mic(1);
-#endif /* WORKAROUND_TICK_NOISE */
+    es9218p_sabre_lowfi2lpb();
     ///////////////////////////////
     // sabre is now in low power bypass mode
     ///////////////////////////////
@@ -1867,22 +1897,17 @@ static int  es9218p_sabre_hifitwo2lpb(void)
     // sabre is now in LowFi mode controlled by GPIO2
     ///////////////////////////////
 
-#if defined(WORKAROUND_TICK_NOISE)
-    if( force_set_clamper_by_sleep_work )
-        wcd_set_clamp_on_mic(0);
-#endif /* WORKAROUND_TICK_NOISE */
+    if (es9218_park_lowfi) {
+        es9218_lowfi = true;
+        return 0;
+    }
 
     if(g_dop_flag) {
         pr_debug("%s: add 200ms delay before reset gpio set for dop playback case.\n",__func__);
         mdelay(200);
     }
 
-    es9218_reset_gpio_L();  // RESETb LOW move to Low Power Bypass mode
-
-#if defined(WORKAROUND_TICK_NOISE)
-    if( force_set_clamper_by_sleep_work )
-        wcd_set_clamp_on_mic(1);
-#endif /* WORKAROUND_TICK_NOISE */
+    es9218p_sabre_lowfi2lpb();
 
     ///////////////////////////////
     // sabre is now in low power bypass mode
@@ -1905,6 +1930,15 @@ static int es9218p_sabre_bypass2hifi(void)
         return -EINVAL;
     }
 
+    if (es9218_lowfi) {
+        // Parked in LowFi: the core is still up, so skip the reset toggles. Clear the analog
+        // overrides to their reset values before the amp start turns overrides back on
+        cancel_delayed_work(&g_es9218_priv->lowfi_work);
+        es9218_lowfi = false;
+        es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_45, 0x00);
+        es9218_write_reg(g_es9218_priv->i2c_client, ES9218P_REG_47, 0x00);
+        pr_info("%s() : resume from LowFi\n", __func__);
+    } else {
 #ifdef WORKAROUND_FOR_CORNER_SAMPLES
     es9218_reset_gpio_H();
     mdelay(1);
@@ -1930,6 +1964,7 @@ static int es9218p_sabre_bypass2hifi(void)
     es9218_reset_gpio_H();
     mdelay(2);
 #endif
+    }
 
     ///////////////////////////////////////////////////////
 	// sabre is now in LowFi mode  (RESETb HIGH, GPIO2 LOW)
@@ -2132,6 +2167,9 @@ static int __es9218_sabre_headphone_off(void)
     }
 
     cancel_delayed_work_sync(&g_es9218_priv->hifi_in_standby_work);
+    cancel_delayed_work(&g_es9218_priv->lowfi_work);
+    if (es9218_lowfi)
+        es9218p_sabre_lowfi2lpb();
 
     if ( es9218_power_state != ESS_PS_BYPASS ||
         es9218_power_state != ESS_PS_IDLE) {
@@ -2350,12 +2388,18 @@ static void es9218_sabre_sleep_work (struct work_struct *work)
         force_set_clamper_by_sleep_work = 1;
 #endif /* WORKAROUND_TICK_NOISE */
 
+        es9218_park_lowfi = g_lowfi_hold_ms > 0 && !g_dop_flag;
         es9218p_sabre_hifi2lpb();
+        es9218_park_lowfi = false;
 
 #if defined(WORKAROUND_TICK_NOISE)
         force_set_clamper_by_sleep_work = 0;
 #endif /* WORKAROUND_TICK_NOISE */
 
+        if (es9218_lowfi) {
+            wake_lock_timeout(&g_es9218_priv->sleep_lock, msecs_to_jiffies(g_lowfi_hold_ms + 1000));
+            schedule_delayed_work(&g_es9218_priv->lowfi_work, msecs_to_jiffies(g_lowfi_hold_ms));
+        }
     }
     else {
         pr_info("%s(): sleep_work state is %s skip operation \n", __func__, power_state[es9218_power_state]);
@@ -2364,6 +2408,23 @@ static void es9218_sabre_sleep_work (struct work_struct *work)
     es9218_is_amp_on = 0;
     mutex_unlock(&g_es9218_priv->power_lock);
     return;
+}
+
+// Parked in LowFi for the hold time without playback: go to Low Power Bypass
+static void es9218_sabre_lowfi_work(struct work_struct *work)
+{
+    mutex_lock(&g_es9218_priv->power_lock);
+    if (es9218_lowfi && es9218_power_state == ESS_PS_BYPASS) {
+#if defined(WORKAROUND_TICK_NOISE)
+        force_set_clamper_by_sleep_work = 1;
+#endif /* WORKAROUND_TICK_NOISE */
+        es9218p_sabre_lowfi2lpb();
+#if defined(WORKAROUND_TICK_NOISE)
+        force_set_clamper_by_sleep_work = 0;
+#endif /* WORKAROUND_TICK_NOISE */
+        pr_info("%s(): LowFi -> LPB\n", __func__);
+    }
+    mutex_unlock(&g_es9218_priv->power_lock);
 }
 
 static int es9218_power_state_get(struct snd_kcontrol *kcontrol,
@@ -2988,7 +3049,7 @@ static int es9218_chip_state_get(struct snd_kcontrol *kcontrol,
         ucontrol->value.enumerated.item[0] = 1; // true
     }
 
-    if(es9218_power_state < ESS_PS_HIFI){
+    if(es9218_power_state < ESS_PS_HIFI && !es9218_lowfi){
         es9218_reset_gpio_L();
 
         // power off when ess chis becomes shutdown
@@ -3784,6 +3845,7 @@ static int es9218_probe(struct i2c_client *client,const struct i2c_device_id *id
     g_es9218_priv = priv;
     INIT_DELAYED_WORK(&g_es9218_priv->hifi_in_standby_work, es9218_sabre_hifi_in_standby_work);
     INIT_DELAYED_WORK(&g_es9218_priv->sleep_work, es9218_sabre_sleep_work);
+    INIT_DELAYED_WORK(&g_es9218_priv->lowfi_work, es9218_sabre_lowfi_work);
 
     mutex_init(&g_es9218_priv->power_lock);
 #if 0

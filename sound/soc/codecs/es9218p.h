@@ -218,6 +218,7 @@ struct es9218_priv {
     struct  es9218_data     *es9218_data;
     struct  delayed_work    hifi_in_standby_work;
     struct  delayed_work    sleep_work;
+    struct  delayed_work    lowfi_work;
     struct  mutex           power_lock;
     struct  wake_lock       sleep_lock;
     struct  wake_lock       shutdown_lock;
