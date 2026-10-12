@@ -811,6 +811,15 @@ static int mdss_dsi_panel_apply_display_setting(struct mdss_panel_data *pdata,
 	return 0;
 }
 
+#if defined(CONFIG_LGE_MIPI_JOAN_ONCELL_QHD_CMD_PANEL)
+/* Display off, then two frames for the panel to go dark before the resolution changes */
+static char display_off[1] = {0x28};
+static struct dsi_cmd_desc display_off_cmd = {
+	{DTYPE_DCS_WRITE, 1, 0, 0, 34, sizeof(display_off)},
+	display_off
+};
+#endif
+
 static void mdss_dsi_panel_switch_mode(struct mdss_panel_data *pdata,
 							int mode)
 {
@@ -847,6 +856,20 @@ static void mdss_dsi_panel_switch_mode(struct mdss_panel_data *pdata,
 		pt = container_of(pdata->current_timing,
 				struct dsi_panel_timing, timing);
 
+#if defined(CONFIG_LGE_MIPI_JOAN_ONCELL_QHD_CMD_PANEL)
+		{
+			struct dsi_panel_cmds off_cmds = {
+				.cmds = &display_off_cmd,
+				.cmd_cnt = 1,
+				.link_state = DSI_LP_MODE,
+			};
+
+			mdss_dsi_panel_cmds_send(ctrl_pdata, &off_cmds,
+					CMD_REQ_DMA_TPG | CMD_REQ_COMMIT);
+			/* The first kickoff after the switch sends post-panel-on (display on) */
+			ctrl_pdata->need_post_panel_on = true;
+		}
+#endif
 		pr_debug("%s: sending switch commands\n", __func__);
 		pcmds = &pt->switch_cmds;
 		flags |= CMD_REQ_DMA_TPG;
