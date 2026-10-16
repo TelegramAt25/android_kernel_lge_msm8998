@@ -563,6 +563,7 @@ struct ftm4_data {
 	bool pure_autotune;
 	u8 pure_autotune_info;
 	int ic_info_ret;
+	bool resume_init;	/* ftm4_init follows touch_resume */
 
 	int ta_detect_pin;
 	struct ftm4_fb_blank fb_blank;

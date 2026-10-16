@@ -2093,10 +2093,13 @@ static int ftm4_lpwg_mode(struct device *dev)
 		ftm4_lpwg_control(dev, LPWG_NONE);
 		ftm4_swipe_enable(dev, false);
 		ftm4_gesture_set(dev, false);
-		ftm4_system_reset(dev);
-		ftm4_wait_for_ready(dev);
-		ftm4_interrupt_set(dev, INT_ENABLE);
-		ftm4_set_active_mode(dev);
+		// ftm4_init resets the IC and senses on right after touch_resume
+		if (!d->resume_init) {
+			ftm4_system_reset(dev);
+			ftm4_wait_for_ready(dev);
+			ftm4_interrupt_set(dev, INT_ENABLE);
+			ftm4_set_active_mode(dev);
+		}
 		if (ts->lpwg.qcover == HALL_NEAR) {
 			TOUCH_I("%s: resume ts->lpwg.qcover == HALL_NEAR\n",
 					__func__);
@@ -3263,6 +3266,8 @@ static int ftm4_resume(struct device *dev)
 	if (touch_boot_mode() == TOUCH_CHARGER_MODE)
 		return -EPERM;
 
+	d->resume_init = true;
+
 	mfts_mode = touch_boot_mode_check(dev);
 	if ((mfts_mode >= MINIOS_MFTS_FOLDER) && !ts->role.mfts_lpwg) {
 		ftm4_power(dev, POWER_ON);
@@ -3326,6 +3331,8 @@ int ftm4_init(struct device *dev)
 		ts->fb_notif.notifier_call = ftm4_fb_notifier_callback;
 		fb_register_client(&ts->fb_notif);
 	}
+
+	d->resume_init = false;
 
 	if (atomic_read(&d->power) == POWER_OFF) {
 		TOUCH_I("%s: d.power is POWER_OFF\n", __func__);
