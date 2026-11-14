@@ -31,7 +31,6 @@
 #include <linux/highmem.h>
 #include <linux/cma.h>
 #include <linux/module.h>
-#include <linux/show_mem_notifier.h>
 #include <asm/cacheflush.h>
 #include "../ion_priv.h"
 #include "ion_cp_common.h"
