@@ -2005,6 +2005,7 @@ static int debug_shrink_set(void *data, u64 val)
 	return 0;
 }
 
+#ifdef DEBUG_HEAP_SHRINKER
 static int debug_shrink_get(void *data, u64 *val)
 {
 	struct ion_heap *heap = data;
