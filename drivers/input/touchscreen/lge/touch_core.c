@@ -60,11 +60,6 @@ static void touch_report_cancel_event(struct touch_core_data *ts)
 			input_report_key(ts->input, BTN_TOOL_FINGER, 1);
 			input_report_abs(ts->input, ABS_MT_PRESSURE,
 					255);
-			TOUCH_I("finger canceled:<%d>(%4d,%4d,%4d)\n",
-					i,
-					ts->tdata[i].x,
-					ts->tdata[i].y,
-					ts->tdata[i].pressure);
 		}
 	}
 
