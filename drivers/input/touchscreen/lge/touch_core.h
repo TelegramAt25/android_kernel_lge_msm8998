@@ -75,10 +75,10 @@ enum TOUCH_DEBUG {
 extern u32 touch_debug_mask;
 #define TOUCH_D(condition, fmt, args...)			\
 	do {							\
-		if (unlikely(touch_debug_mask & (condition)))	\
-			pr_info("[Touch] " fmt, ##args);	\
+		pr_debug("[Touch] " fmt, ##args);		\
 	} while (0)
 
+/*
 #define TOUCH_DEBUG_SHOW_FILE
 #ifdef TOUCH_DEBUG_SHOW_FILE
 #define __SHORT_FILE__ (strrchr(__FILE__, '/') + 1)
@@ -87,6 +87,8 @@ extern u32 touch_debug_mask;
 #else
 #define TOUCH_TRACE()	TOUCH_D(TRACE, "- %s %d", __func__, __LINE__)
 #endif
+*/
+#define TOUCH_TRACE() ((void)0)
 
 #define TOUCH_IRQ_NONE			0
 #define TOUCH_IRQ_FINGER		(1 << 0)
