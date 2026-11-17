@@ -2239,29 +2239,6 @@ static int ftm4_wireless_status(struct device *dev)
 	return ret;
 }
 
-static int ftm4_ime_status(struct device *dev)
-{
-	struct touch_core_data *ts = to_touch_core(dev);
-	u8 buf[4] = {0x00, 0x00, 0x00, 0x10};
-	int ret = 0;
-	int ime_state = atomic_read(&ts->state.ime);
-
-	TOUCH_TRACE();
-
-	TOUCH_I("%s: IME: %d\n", __func__, ime_state);
-
-	if (ime_state)
-		buf[0] = 0xC1;
-	else
-		buf[0] = 0xC2;
-
-	ret = ftm4_reg_write(dev, buf, 4);
-	if (ret < 0)
-		TOUCH_E("failed to write reg (ret = %d)\n", ret);
-
-	return ret;
-}
-
 static int ftm4_vr_status(struct device *dev)
 {
 	struct ftm4_data *d = to_ftm4_data(dev);
@@ -2339,8 +2316,6 @@ static int ftm4_notify(struct device *dev, ulong event, void *data)
 		ret = ftm4_wireless_status(dev);
 		break;
 	case NOTIFY_IME_STATE:
-		TOUCH_I("%s: NOTIFY_IME_STATE!\n", __func__);
-		ret = ftm4_ime_status(dev);
 		break;
 	case NOTIFY_CALL_STATE:
 		TOUCH_I("%s: NOTIFY_CALL_STATE!\n", __func__);
@@ -3397,7 +3372,6 @@ int ftm4_init(struct device *dev)
 
 	ftm4_usb_status(dev);
 	ftm4_wireless_status(dev);
-	ftm4_ime_status(dev);
 	ftm4_vr_status(dev);
 	ftm4_lpwg_force_cal_debug(dev);
 	/* incoming call status reg update */

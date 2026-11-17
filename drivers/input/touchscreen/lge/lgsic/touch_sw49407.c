@@ -1569,9 +1569,6 @@ static int sw49407_notify(struct device *dev, ulong event, void *data)
 		ret = sw49407_earjack_status(dev, *(u32 *)data);
 		break;
 	case NOTIFY_IME_STATE:
-		TOUCH_I("NOTIFY_IME_STATE!\n");
-		ret = sw49407_reg_write(dev, d->reg_info.r_abt_cmd_spi_addr +
-			REG_IME_STATE, (u32*)data, sizeof(u32));
 		break;
 	case NOTIFY_DEBUG_TOOL:
 		ret = sw49407_debug_tool(dev, *(u32 *)data);
@@ -2329,12 +2326,6 @@ static int sw49407_init(struct device *dev)
 				SPR_CHARGER_STS, &d->charger, sizeof(u32));
 	if (ret)
 		TOUCH_E("failed to write \'spr_charger_sts\', ret:%d\n", ret);
-
-	data = atomic_read(&ts->state.ime);
-	ret = sw49407_reg_write(dev, d->reg_info.r_abt_cmd_spi_addr +
-				REG_IME_STATE, &data, sizeof(data));
-	if (ret)
-		TOUCH_E("failed to write \'reg_ime_state\', ret:%d\n", ret);
 
 	ret = sw49407_reg_write(dev, d->reg_info.r_abt_cmd_spi_addr +
 			QCOVER_SENSITIVITY, &d->q_sensitivity, sizeof(u32));

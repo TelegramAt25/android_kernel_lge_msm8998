@@ -25,7 +25,6 @@
 #define TOUCH_SHOW(ret, buf, fmt, args...) \
 	(ret += snprintf(buf + ret, PAGE_SIZE - ret, fmt, ##args))
 
-static char ime_str[3][8] = {"OFF", "ON", "SWYPE"};
 static char incoming_call_str[3][8] = {"IDLE", "RINGING", "OFFHOOK"};
 static char mfts_str[4][8] = {"NONE", "FOLDER", "FLAT", "CURVED"};
 int lpwg_status = 0;
@@ -199,46 +198,6 @@ static ssize_t store_tap2wake(struct device *dev,
 	}
 
 	tap2wake_status = status;
-
-	return count;
-}
-
-static ssize_t show_ime_state(struct device *dev, char *buf)
-{
-	struct touch_core_data *ts = to_touch_core(dev);
-	int value = 0;
-	int ret = 0;
-
-	value = atomic_read(&ts->state.ime);
-
-	ret = snprintf(buf, PAGE_SIZE, "%s : %s(%d)\n", __func__,
-			ime_str[value], value);
-
-	return ret;
-}
-
-static ssize_t store_ime_state(struct device *dev,
-		const char *buf, size_t count)
-{
-	struct touch_core_data *ts = to_touch_core(dev);
-	int value = 0;
-	int ret = 0;
-
-	if (sscanf(buf, "%d", &value) <= 0)
-		return count;
-
-	if (value >= IME_OFF && value <= IME_SWYPE) {
-		if (atomic_read(&ts->state.ime) == value)
-			return count;
-
-		atomic_set(&ts->state.ime, value);
-		ret = touch_blocking_notifier_call(NOTIFY_IME_STATE,
-			&ts->state.ime);
-		TOUCH_I("%s : %s(%d), ret = %d\n",
-			__func__, ime_str[value], value, ret);
-	} else {
-		TOUCH_I("%s : Unknown %d\n", __func__, value);
-	}
 
 	return count;
 }
@@ -523,7 +482,6 @@ static TOUCH_ATTR(fw_upgrade, show_upgrade, store_upgrade);
 static TOUCH_ATTR(lpwg_data, show_lpwg_data, store_lpwg_data);
 static TOUCH_ATTR(lpwg_notify, show_lpwg_notify, store_lpwg_notify);
 static TOUCH_ATTR(tap2wake, show_tap2wake, store_tap2wake);
-static TOUCH_ATTR(ime_status, show_ime_state, store_ime_state);
 static TOUCH_ATTR(quick_cover_status,
 	show_quick_cover_state, store_quick_cover_state);
 static TOUCH_ATTR(incoming_call,
@@ -545,7 +503,6 @@ static struct attribute *touch_attribute_list[] = {
 	&touch_attr_lpwg_data.attr,
 	&touch_attr_lpwg_notify.attr,
 	&touch_attr_tap2wake.attr,
-	&touch_attr_ime_status.attr,
 	&touch_attr_quick_cover_status.attr,
 	&touch_attr_incoming_call.attr,
 	&touch_attr_firmware.attr,
