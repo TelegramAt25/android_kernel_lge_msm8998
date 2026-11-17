@@ -83,6 +83,7 @@ static char* log_psy_type(int type) {
 	return "UNKNOWN (UNDEFINED TYPE)";
 }
 
+#if 0
 static void debug_dump(struct smb_charger* charger, const char* title, u16 start) {
 	u16 reg, i;
 	u8 val[16];
@@ -333,6 +334,7 @@ static void debug_battery(struct smb_charger* charger, int func) {
 	else
 		; /* Do nothing */
 }
+#endif
 
 static int restricted_charging_iusb(struct smb_charger* charger, int mvalue) {
 	int rc = 0;
@@ -728,7 +730,7 @@ static int extension_battery_set_property_pre(struct power_supply *psy,
 		break;
 
 	case POWER_SUPPLY_PROP_DEBUG_BATTERY :
-		debug_battery(charger, val->intval);
+		//debug_battery(charger, val->intval);
 		break;
 
 	case POWER_SUPPLY_PROP_PARALLEL_BATFET_EN:
