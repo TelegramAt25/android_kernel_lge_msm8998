@@ -201,11 +201,6 @@ enum {
 };
 
 enum {
-	LOCKSCREEN_UNLOCK = 0,
-	LOCKSCREEN_LOCK,
-};
-
-enum {
 	IME_OFF = 0,
 	IME_ON,
 	IME_SWYPE,
@@ -320,7 +315,6 @@ struct state_info {
 	atomic_t connect; /* connection using USB port */
 	atomic_t wireless; /* connection using wirelees_charger */
 	atomic_t earjack; /* connection using earjack */
-	atomic_t lockscreen;
 	atomic_t ime;
 	atomic_t quick_cover;
 	atomic_t incoming_call;

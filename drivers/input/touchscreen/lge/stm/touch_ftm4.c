@@ -3884,29 +3884,9 @@ static void ftm4_lpwg_abs_filter(struct device *dev, u8 touch_id)
 	struct ftm4_data *d = to_ftm4_data(dev);
 	u16 old_y = ts->tdata[touch_id].y;
 	u16 new_y = old_y - d->lpwg_abs.area.offset_y;
-	u16 old_mask = ts->old_mask;
-	u16 new_mask = ts->new_mask;
-	u16 change_mask = old_mask ^ new_mask;
-	u16 press_mask = new_mask & change_mask;
-	bool hide_lockscreen_coord =
-		((atomic_read(&ts->state.lockscreen) == LOCKSCREEN_LOCK) &&
-		 (ts->role.hide_coordinate));
-
-	TOUCH_TRACE();
 
 	if ((new_y > ts->caps.max_y) || (new_y < 0)) {
-		TOUCH_D(ABS, "%s: invalid new_y(%d)\n", __func__, new_y);
 		new_y = 0;
-	}
-
-	if (press_mask & (1 << touch_id)) {
-		if (hide_lockscreen_coord) {
-			TOUCH_I("%s: <id:%d> shift Y value(xxxx->xxxx)\n",
-					__func__, touch_id);
-		} else {
-			TOUCH_I("%s: <id:%d> shift Y value(%d->%d)\n",
-					__func__, touch_id, old_y, new_y);
-		}
 	}
 
 	ts->tdata[touch_id].y = new_y;

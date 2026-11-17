@@ -203,40 +203,6 @@ static ssize_t store_tap2wake(struct device *dev,
 	return count;
 }
 
-static ssize_t show_lockscreen_state(struct device *dev, char *buf)
-{
-	struct touch_core_data *ts = to_touch_core(dev);
-	int value = 0;
-	int ret = 0;
-
-	value = atomic_read(&ts->state.lockscreen);
-
-	ret = snprintf(buf, PAGE_SIZE, "%s : %s(%d)\n", __func__,
-		value ? "LOCK" : "UNLOCK", value);
-
-	return ret;
-}
-
-static ssize_t store_lockscreen_state(struct device *dev,
-		const char *buf, size_t count)
-{
-	int value = 0;
-	struct touch_core_data *ts = to_touch_core(dev);
-
-	if (sscanf(buf, "%d", &value) <= 0)
-		return count;
-
-	if (value == LOCKSCREEN_UNLOCK || value == LOCKSCREEN_LOCK) {
-		atomic_set(&ts->state.lockscreen, value);
-		TOUCH_I("%s : %s(%d)\n", __func__,
-				value ? "LOCK" : "UNLOCK", value);
-	} else {
-		TOUCH_I("%s : Unknown %d\n", __func__, value);
-	}
-
-	return count;
-}
-
 static ssize_t show_ime_state(struct device *dev, char *buf)
 {
 	struct touch_core_data *ts = to_touch_core(dev);
@@ -557,8 +523,6 @@ static TOUCH_ATTR(fw_upgrade, show_upgrade, store_upgrade);
 static TOUCH_ATTR(lpwg_data, show_lpwg_data, store_lpwg_data);
 static TOUCH_ATTR(lpwg_notify, show_lpwg_notify, store_lpwg_notify);
 static TOUCH_ATTR(tap2wake, show_tap2wake, store_tap2wake);
-static TOUCH_ATTR(keyguard,
-	show_lockscreen_state, store_lockscreen_state);
 static TOUCH_ATTR(ime_status, show_ime_state, store_ime_state);
 static TOUCH_ATTR(quick_cover_status,
 	show_quick_cover_state, store_quick_cover_state);
@@ -581,7 +545,6 @@ static struct attribute *touch_attribute_list[] = {
 	&touch_attr_lpwg_data.attr,
 	&touch_attr_lpwg_notify.attr,
 	&touch_attr_tap2wake.attr,
-	&touch_attr_keyguard.attr,
 	&touch_attr_ime_status.attr,
 	&touch_attr_quick_cover_status.attr,
 	&touch_attr_incoming_call.attr,
