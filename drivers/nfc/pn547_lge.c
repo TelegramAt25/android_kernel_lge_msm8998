@@ -356,7 +356,7 @@ static long pn547_dev_unlocked_ioctl(struct file *filp, unsigned int cmd, unsign
             msleep(10);
         } else if (arg == 1) {
             /* power on */
-            pr_info(PN547_DRV_NAME ":%s power on\n", __func__);
+            pr_debug(PN547_DRV_NAME ":%s power on\n", __func__);
             if (sPowerState == NFC_POWER_OFF) {
 #ifdef CONFIG_LGE_NFC_USE_PMIC
                 if(clk_source == CLKS_PMIC)
@@ -371,7 +371,7 @@ static long pn547_dev_unlocked_ioctl(struct file *filp, unsigned int cmd, unsign
                 if (sIrqState == false) {
                     irq_set_irq_wake(pn547_dev->client->irq,1);
                     sIrqState = true;
-                    pr_info(PN547_DRV_NAME ":%s enable IRQ\n", __func__);
+                    pr_debug(PN547_DRV_NAME ":%s enable IRQ\n", __func__);
                 }
                 else {
                     pr_err("%s IRQ is already enabled!\n", __func__);
@@ -386,7 +386,7 @@ static long pn547_dev_unlocked_ioctl(struct file *filp, unsigned int cmd, unsign
             }
         } else  if (arg == 0) {
             /* power off */
-            pr_info(PN547_DRV_NAME ":%s power off\n", __func__);
+            pr_debug(PN547_DRV_NAME ":%s power off\n", __func__);
             if (sPowerState == NFC_POWER_ON) {
 #ifdef CONFIG_LGE_NFC_USE_PMIC
                 if(clk_source == CLKS_PMIC)
