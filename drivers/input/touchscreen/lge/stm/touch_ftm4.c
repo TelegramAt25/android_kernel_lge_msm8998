@@ -3420,8 +3420,9 @@ static void ftm4_debug_msg_event_handler(struct device *dev, u8 *data)
 static int ftm4_status_event_handler(struct device *dev, u8 *data)
 {
 	u8 status = data[1];
-	char str[80] = {0};
 	int ret = 0;
+	/*
+	char str[80] = {0};
 
 	TOUCH_TRACE();
 
@@ -3503,16 +3504,20 @@ static int ftm4_status_event_handler(struct device *dev, u8 *data)
 	} else if (status == STATUS_EVENT_WIRELESS_CHARGER_OFF) {
 		snprintf(str, sizeof(str),
 				"STATUS_EVENT_WIRELESS_CHARGER_OFF");
-	} else if (status == STATUS_EVENT_DETECT_ESD_PATTERN) {
+	} else */ if (status == STATUS_EVENT_DETECT_ESD_PATTERN) {
+		/*
 		snprintf(str, sizeof(str),
 				"STATUS_EVENT_DETECT_ESD_PATTERN");
+		*/
 		ret = -ERESTART;
 	} else {
 		ftm4_debug_msg_event_handler(dev, data);
 	}
 
+	/*
 	TOUCH_I("%s: %s [%02X][%02X][%02X]\n", __func__,
 			str, data[2], data[3], data[4]);
+	*/
 
 	return ret;
 }
