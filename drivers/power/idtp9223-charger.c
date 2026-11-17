@@ -929,12 +929,14 @@ static void idtp9223_monitor(struct work_struct* work) {
 	if (alive)
 		idtp9223_reg_read(chip->wlc_client, chip->REG_ADDR_VOUT, &vout_result);
 
+#if 0
 	pr_idt(IDT_MONITOR, "[USB]%d [ALV]%d [OD2]%d [QIPMA]%d [VOUT]%02x\n",
 			!enabled, alive, od2, qipma_on, vout_result);
 
 	if (false) {
 		idtp9223_reg_dump(chip);
 	}
+#endif
 
 	schedule_delayed_work(&chip->wlc_monitor, round_jiffies_relative
 		(msecs_to_jiffies(1000*30)));
