@@ -3280,7 +3280,9 @@ static int tfa98xx_mute(struct snd_soc_dai *dai, int mute, int stream)
 static int _tfa98xx_mute(struct tfa98xx *tfa98xx, int mute, int stream)
 {
 #if defined(TFA_FORCE_TO_STOP_RAM_AT_OVERLAPPED_OUTPUT)
+#if 0
 	pr_info("%s: ram_exception=%d, mute=%d stream=%d\n", __func__, ram_exception, mute, stream);
+#endif
 #endif
 
 	if (mute) {
@@ -3291,8 +3293,10 @@ static int _tfa98xx_mute(struct tfa98xx *tfa98xx, int mute, int stream)
 			tfa98xx->pstream = 0;
 		else if (stream == SNDRV_PCM_STREAM_CAPTURE)
 			tfa98xx->cstream = 0;
+#if 0
 		pr_info("mute:%d [pstream %d, cstream %d, samstream %d]\n", mute,
 			tfa98xx->pstream, tfa98xx->cstream, tfa98xx->samstream);
+#endif
 		tfa98xx_set_stream_state((tfa98xx->pstream & BIT_PSTREAM)
 			|((tfa98xx->cstream<<1) & BIT_CSTREAM)|((tfa98xx->samstream<<2) & BIT_SAMSTREAM));
 
@@ -3312,8 +3316,10 @@ static int _tfa98xx_mute(struct tfa98xx *tfa98xx, int mute, int stream)
 			tfa98xx->pstream = 1;
 		else if (stream == SNDRV_PCM_STREAM_CAPTURE)
 			tfa98xx->cstream = 1;
+#if 0
 		pr_info("mute:%d [pstream %d, cstream %d, samstream %d]\n", mute,
 			tfa98xx->pstream, tfa98xx->cstream, tfa98xx->samstream);
+#endif
 
 #if defined(TFA_FORCE_TO_STOP_RAM_AT_OVERLAPPED_OUTPUT)
 		if (ram_exception == 1) { // stop RaM by force, interrupted by starting playback
@@ -3361,7 +3367,9 @@ static int _tfa98xx_stop(struct tfa98xx *tfa98xx)
 	if (tfa98xx->dsp_fw_state != TFA98XX_DSP_FW_OK)
 		return 0;
 	mutex_lock(&tfa98xx->dsp_lock);
+#if 0
 	pr_info("%s: stop tfa amp \n", __func__);
+#endif
 	tfa_stop();
 	tfa98xx->dsp_init = TFA98XX_DSP_INIT_STOPPED;
 	mutex_unlock(&tfa98xx->dsp_lock);
