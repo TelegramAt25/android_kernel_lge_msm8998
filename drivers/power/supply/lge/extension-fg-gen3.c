@@ -474,6 +474,7 @@ static int extension_battery_cycle(/* @Nonnull */ struct fg_chip *chip) {
 	return cycle;
 }
 
+#if 0
 static void fggen3_snapshot_print(void) {
 	/* To remove TAG in the logs, 'printk' is used */
 
@@ -496,6 +497,7 @@ static void fggen3_snapshot_print(void) {
 	/* Misc        */ fggen3.misc_cycle, fggen3.misc_batid,
 	/* SoCs        */ fggen3.misc_battsoc, fggen3.misc_ccsocsw, fggen3.misc_ccsoc);
 }
+#endif
 
 static void fggen3_snapshot_inputnow(int* vusb, int* iusb, int* vwlc, int* iwlc, int* aicl) {
 	struct power_supply* psy_main  = power_supply_get_by_name("main");
@@ -582,8 +584,10 @@ static void fggen3_snapshot_update(struct power_supply *psy) {
 	fggen3.misc_ccsoc = !fg_get_sram_prop(fg3, FG_SRAM_CC_SOC, &buf)
 		? div_s64((s64)buf*1000, CC_SOC_30BIT) : LGE_FG_INITVAL;
 
+#if 0
 	/* logging finally */
 	fggen3_snapshot_print();
+#endif
 }
 
 #define KI_CURR_LOWTH_DISCHG_DEFAULT	500
