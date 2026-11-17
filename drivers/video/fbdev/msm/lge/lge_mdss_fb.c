@@ -252,7 +252,7 @@ int lge_br_to_bl (struct msm_fb_data_type *mfd, int br_lvl)
 	/* modify brightness level */
 	if (lge_get_bootreason_with_lcd_dimming() && !is_blank_called()) {
 		br_lvl = 1;
-		pr_info("lcd dimming mode. set value = %d\n", br_lvl);
+		pr_debug("lcd dimming mode. set value = %d\n", br_lvl);
 #ifdef CONFIG_LGE_PM_LGE_POWER_CLASS_BATTERY_ID_CHECKER
 	} else if (is_factory_cable()
 #if !defined(CONFIG_LGE_PM_EMBEDDED_BATTERY)
@@ -285,7 +285,7 @@ int lge_br_to_bl (struct msm_fb_data_type *mfd, int br_lvl)
 #endif
 	if (pinfo->blmap[blmaptype])
 		bl_lvl = pinfo->blmap[blmaptype][br_lvl];
-	pr_info("br_lvl(%d) -> bl_lvl(%d) [%s]\n", br_lvl, bl_lvl,
+	pr_debug("br_lvl(%d) -> bl_lvl(%d) [%s]\n", br_lvl, bl_lvl,
 				lge_get_blmapname(blmaptype));
 	return bl_lvl;
 }
@@ -474,7 +474,7 @@ int lge_br_to_bl_ex(struct msm_fb_data_type *mfd, int br_lvl)
 	/* modify brightness level */
 	if (lge_get_bootreason_with_lcd_dimming() && !is_blank_called()) {
 		br_lvl = 1;
-		pr_info("lcd dimming mode. set value = %d\n", br_lvl);
+		pr_debug("lcd dimming mode. set value = %d\n", br_lvl);
 #ifdef CONFIG_LGE_PM_LGE_POWER_CLASS_BATTERY_ID_CHECKER
 	} else if (is_factory_cable()
 #if !defined(CONFIG_LGE_PM_EMBEDDED_BATTERY)
@@ -495,7 +495,7 @@ int lge_br_to_bl_ex(struct msm_fb_data_type *mfd, int br_lvl)
 
 	if (pinfo->blmap[blmaptype])
 		bl_lvl = pinfo->blmap[blmaptype][br_lvl];
-	pr_info("br_lvl(%d) -> bl_lvl(%d) [%s]\n", br_lvl, bl_lvl,
+	pr_debug("br_lvl(%d) -> bl_lvl(%d) [%s]\n", br_lvl, bl_lvl,
 				lge_get_blmapname(blmaptype));
 	return bl_lvl;
 }
