@@ -36,8 +36,6 @@
 #define POWER_COLLAPSE_TIME msecs_to_jiffies(100)
 #define CMD_MODE_GATE_TIMEOUT msecs_to_jiffies(48)
 #define CMD_MODE_IDLE_TIMEOUT msecs_to_jiffies(16 * 4)
-// Hold resources past the input rate limit until the first touch frame lands.
-#define CMD_MODE_EARLY_WAKE_TIMEOUT msecs_to_jiffies(200)
 #define INPUT_EVENT_HANDLER_DELAY_USECS (16000 * 4)
 #define AUTOREFRESH_MAX_FRAME_CNT 6
 #if defined(CONFIG_LGE_DISPLAY_COMMON)
@@ -1096,7 +1094,7 @@ int mdss_mdp_resource_control(struct mdss_mdp_ctl *ctl, u32 sw_event)
 			 * up is called but no frame update is sent.
 			 */
 			schedule_delayed_work(&ctx->delayed_off_clk_work,
-				      CMD_MODE_EARLY_WAKE_TIMEOUT);
+				      CMD_MODE_IDLE_TIMEOUT);
 			pr_debug("off work scheduled\n");
 		}
 		mutex_unlock(&ctl->rsrc_lock);
