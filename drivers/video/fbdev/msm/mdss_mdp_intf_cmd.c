@@ -34,7 +34,6 @@
 
 #define STOP_TIMEOUT(hz) msecs_to_jiffies((1000 / hz) * (6 + 2))
 #define POWER_COLLAPSE_TIME msecs_to_jiffies(100)
-#define CMD_MODE_GATE_TIMEOUT msecs_to_jiffies(48)
 #define CMD_MODE_IDLE_TIMEOUT msecs_to_jiffies(16 * 4)
 #define INPUT_EVENT_HANDLER_DELAY_USECS (16000 * 4)
 #define AUTOREFRESH_MAX_FRAME_CNT 6
@@ -95,7 +94,7 @@ struct mdss_mdp_cmd_ctx {
 	spinlock_t clk_lock;
 	spinlock_t koff_lock;
 	spinlock_t ctlstart_lock;
-	struct delayed_work gate_clk_work;
+	struct work_struct gate_clk_work;
 	struct delayed_work delayed_off_clk_work;
 	struct work_struct pp_done_work;
 #if defined(CONFIG_LGE_DISPLAY_AMBIENT_SUPPORTED)
@@ -600,8 +599,8 @@ err:
  *	Since this event is received at interrupt ievel, by the end of
  *	the event we haven't changed the power state, but scheduled
  *	work items to do the transition, so by the end of this event:
- *	1. A delayed work is scheduled to go to gate state after
- *		CMD_MODE_GATE_TIMEOUT without another kickoff.
+ *	1. A work item is scheduled to go to gate state as soon as
+ *		possible (as soon as scheduler give us the chance)
  *	2. A delayed work is scheduled to go to OFF after
  *		CMD_MODE_IDLE_TIMEOUT time. Power State will be updated
  *		at the end of each work item, to make sure we update
@@ -812,7 +811,7 @@ int mdss_mdp_resource_control(struct mdss_mdp_ctl *ctl, u32 sw_event)
 		mdata->ao_bw_uc_idx = mdata->curr_bw_uc_idx;
 
 		/* Cancel GATE Work Item */
-		if (cancel_delayed_work_sync(&ctx->gate_clk_work)) {
+		if (cancel_work_sync(&ctx->gate_clk_work)) {
 			pr_debug("%s gate work canceled\n", __func__);
 
 			if (mdp5_data->resources_state !=
@@ -923,10 +922,8 @@ int mdss_mdp_resource_control(struct mdss_mdp_ctl *ctl, u32 sw_event)
 				sw_event, 0x22);
 
 			/* start work item to gate */
-			// Keep clocks on between frames while updates are active.
 			if (mdata->enable_gate)
-				schedule_delayed_work(
-					&ctx->gate_clk_work, CMD_MODE_GATE_TIMEOUT);
+				schedule_work(&ctx->gate_clk_work);
 
 			/* start work item to shut down after delay */
 			schedule_delayed_work(
@@ -967,7 +964,7 @@ int mdss_mdp_resource_control(struct mdss_mdp_ctl *ctl, u32 sw_event)
 		 */
 
 		/* Cancel GATE Work Item */
-		if (cancel_delayed_work_sync(&ctx->gate_clk_work)) {
+		if (cancel_work_sync(&ctx->gate_clk_work)) {
 			pr_debug("gate work canceled\n");
 
 			if (mdp5_data->resources_state !=
@@ -1034,7 +1031,7 @@ int mdss_mdp_resource_control(struct mdss_mdp_ctl *ctl, u32 sw_event)
 			break;
 
 		/* Cancel GATE Work Item */
-		if (cancel_delayed_work_sync(&ctx->gate_clk_work)) {
+		if (cancel_work_sync(&ctx->gate_clk_work)) {
 			pr_debug("%s: %s - gate_work cancelled\n",
 				 __func__, get_sw_event_name(sw_event));
 			schedule_off = true;
@@ -1733,7 +1730,8 @@ static void clk_ctrl_delayed_off_work(struct work_struct *work)
 	 * but if the system is laggy, prevent from a race condition
 	 * between both work items by waiting for the gate to finish.
 	 */
-	flush_delayed_work(&ctx->gate_clk_work);
+	if (mdata->enable_gate)
+		flush_work(&ctx->gate_clk_work);
 
 	pr_debug("ctl:%d pwr_state:%s\n", ctl->num,
 		get_clk_pwr_state_name
@@ -1780,8 +1778,9 @@ static void clk_ctrl_delayed_off_work(struct work_struct *work)
 		goto exit;
 	}
 
-	// Restore gated clocks before full shutdown.
-	if (mdp5_data->resources_state == MDP_RSRC_CTL_STATE_GATE)
+	/* Enable clocks if Gate feature is enabled and we are in this state */
+	if (mdata->enable_gate && (mdp5_data->resources_state
+			== MDP_RSRC_CTL_STATE_GATE))
 		mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON);
 
 	/* first power off the slave DSI (if present) */
@@ -1815,9 +1814,8 @@ exit:
 static void clk_ctrl_gate_work(struct work_struct *work)
 {
 	struct mdss_overlay_private *mdp5_data;
-	struct mdss_data_type *mdata = mdss_mdp_get_mdata();
 	struct mdss_mdp_cmd_ctx *ctx =
-		container_of(to_delayed_work(work), typeof(*ctx), gate_clk_work);
+		container_of(work, typeof(*ctx), gate_clk_work);
 	struct mdss_mdp_ctl *ctl, *sctl;
 	struct mdss_mdp_cmd_ctx *sctx = NULL;
 	struct dsi_panel_clk_ctrl clk_ctrl;
@@ -1876,10 +1874,6 @@ static void clk_ctrl_gate_work(struct work_struct *work)
 			goto exit;
 		}
 	}
-
-	if (!mdata->enable_gate || mdp5_data->resources_state !=
-			MDP_RSRC_CTL_STATE_ON)
-		goto exit;
 
 	if (ctx->autorefresh_state != MDP_AUTOREFRESH_OFF) {
 		/*
@@ -2604,7 +2598,7 @@ int mdss_mdp_cmd_set_autorefresh_mode(struct mdss_mdp_ctl *mctl, int frame_cnt)
 		mctl->mdata->serialize_wait4pp = true;
 
 		/* Cancel GATE Work Item */
-		if (cancel_delayed_work_sync(&ctx->gate_clk_work))
+		if (cancel_work_sync(&ctx->gate_clk_work))
 			pr_debug("%s: gate work canceled\n", __func__);
 
 		/* Cancel OFF Work Item  */
@@ -3738,7 +3732,7 @@ static int mdss_mdp_cmd_ctx_setup(struct mdss_mdp_ctl *ctl,
 	mutex_init(&ctx->clk_mtx);
 	mutex_init(&ctx->mdp_rdptr_lock);
 	mutex_init(&ctx->mdp_wrptr_lock);
-	INIT_DELAYED_WORK(&ctx->gate_clk_work, clk_ctrl_gate_work);
+	INIT_WORK(&ctx->gate_clk_work, clk_ctrl_gate_work);
 	INIT_DELAYED_WORK(&ctx->delayed_off_clk_work,
 		clk_ctrl_delayed_off_work);
 	INIT_WORK(&ctx->pp_done_work, pingpong_done_work);
