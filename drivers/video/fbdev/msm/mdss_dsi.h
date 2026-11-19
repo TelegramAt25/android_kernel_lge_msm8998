@@ -665,7 +665,7 @@ void mdss_dsi_cmd_bta_sw_trigger(struct mdss_panel_data *pdata);
 bool mdss_dsi_ack_err_status(struct mdss_dsi_ctrl_pdata *ctrl);
 int mdss_dsi_clk_ctrl(struct mdss_dsi_ctrl_pdata *ctrl, void *clk_handle,
 	enum mdss_dsi_clk_type clk_type, enum mdss_dsi_clk_state clk_state);
-int mdss_dsi_clk_req(struct mdss_dsi_ctrl_pdata *ctrl,
+void mdss_dsi_clk_req(struct mdss_dsi_ctrl_pdata *ctrl,
 	struct dsi_panel_clk_ctrl *clk_ctrl);
 void mdss_dsi_controller_cfg(int enable,
 				struct mdss_panel_data *pdata);
