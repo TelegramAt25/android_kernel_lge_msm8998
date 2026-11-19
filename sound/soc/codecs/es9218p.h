@@ -1,4 +1,4 @@
-﻿/*
+/*
  *  ES9218P Device Driver.
  *
  *  This program is device driver for ES9218P chip set.
