@@ -918,7 +918,7 @@ static int es9218p_sabre_amp_stop(struct i2c_client *client, int headset)
  * The setters below always store the value; the chip is only programmed while it is
  * powered in Hi-Fi. es9218p_sabre_bypass2hifi() re-applies the stored values on entry.
  */
-static bool es9218_sysfs_is_hifi(void)
+static inline bool es9218_sysfs_is_hifi(void)
 {
     return es9218_power_state >= ESS_PS_HIFI;
 }
